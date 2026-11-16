@@ -18,7 +18,7 @@ jobs:
         include:
           - os: windows-latest
             name: Windows
-          - os: macos-14   # Apple Silicon (o PyTorch não tem mais build para Mac Intel)
+          - os: macos-latest   # Apple Silicon (o PyTorch não tem mais build para Mac Intel)
             name: macOS
     runs-on: ${{ matrix.os }}
     defaults:
