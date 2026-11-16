@@ -324,7 +324,7 @@ function setupLibrary() {
       const b = sp && sp.branches.find((x) => x.uid === row.dataset.branchUid);
       if (b) target = { arr: b.stages, at: b.stages.length };
     } else if (near("#board")) {
-      target = { arr: state.chain, at: state.chain.length };
+      target = { arr: state.chain, at: mainIndexAt(e.clientX) };
     }
     uploadFiles(e.dataTransfer.files, { target });
   });
@@ -515,9 +515,16 @@ function makePedal(st, arr, i) {
   fs.onclick = () => { st.enabled = !st.enabled; commit(); };
   $(".remove", li).onclick = () => { arr.splice(i, 1); commit(); };
   // ‹ › movem dentro da mesma lista, pulando a divisão na lista principal.
+  const sp = splitNode();
+  const inBranch = arr !== state.chain;
   const step = (dir) => {
     let j = i + dir;
-    if (arr === state.chain && isSplit(arr[j])) {
+    if (inBranch && (j < 0 || j >= arr.length)) {
+      // sai da divisão: para antes dela (‹) ou depois dela (›)
+      arr.splice(i, 1);
+      const k = state.chain.indexOf(sp);
+      state.chain.splice(dir < 0 ? k : k + 1, 0, st);
+    } else if (arr === state.chain && isSplit(arr[j])) {
       // entra na cadeia A pela ponta mais próxima
       const a = arr[j].branches[0].stages;
       arr.splice(i, 1);
@@ -531,10 +538,15 @@ function makePedal(st, arr, i) {
     (el && el.style.visibility !== "hidden" ? el : document.querySelector(`.pedal[data-uid="${st.uid}"] .footswitch`)).focus();
   };
   const left = $(".move-left", li), right = $(".move-right", li);
-  const first = i === 0, last = i === arr.length - 1;
+  // Dentro de uma cadeia A/B as pontas continuam ativas (saem da divisão).
+  const first = i === 0 && !inBranch, last = i === arr.length - 1 && !inBranch;
   left.disabled = first; right.disabled = last;
   left.style.visibility = first ? "hidden" : "";
   right.style.visibility = last ? "hidden" : "";
+  if (inBranch) {
+    if (i === 0) left.setAttribute("aria-label", "Tirar da divisão (para antes dela)");
+    if (i === arr.length - 1) right.setAttribute("aria-label", "Tirar da divisão (para depois dela)");
+  }
   left.onclick = () => step(-1);
   right.onclick = () => step(1);
 
@@ -781,6 +793,19 @@ function renderCabAlert() {
   }
 }
 
+// Índice na lista principal onde algo solto em clientX deve entrar.
+function mainIndexAt(clientX) {
+  const kids = [...$("#chain").children];
+  return kids.filter((k) => { const r = k.getBoundingClientRect(); return clientX > r.left + r.width / 2; }).length;
+}
+
+function markMainDrop(at) {
+  clearDropMarks();
+  const kids = [...$("#chain").children];
+  if (at < kids.length) kids[at].classList.add("drop-before");
+  else if (kids.length) kids[kids.length - 1].classList.add("drop-after");
+}
+
 function clearDropMarks() {
   for (const el of document.querySelectorAll(".drop-before, .drop-after")) el.classList.remove("drop-before", "drop-after");
   for (const el of document.querySelectorAll(".drop-target")) el.classList.remove("drop-target");
@@ -788,14 +813,20 @@ function clearDropMarks() {
 
 function setupBoard() {
   const board = $("#board");
+  // Soltar na área livre da pedaleira (inclusive no cabeçalho/borda da divisão):
+  // entra na cadeia principal na posição do cursor.
   board.addEventListener("dragover", (e) => {
-    if (e.dataTransfer.types.includes("application/x-chaincap-file") || dragUid) e.preventDefault();
+    if (!e.dataTransfer.types.includes("application/x-chaincap-file") && !dragUid) return;
+    e.preventDefault();
+    markMainDrop(mainIndexAt(e.clientX));
   });
+  board.addEventListener("dragleave", (e) => { if (!board.contains(e.relatedTarget)) clearDropMarks(); });
   board.addEventListener("drop", (e) => {
     if (e.dataTransfer.files && e.dataTransfer.files.length) return; // tratado na janela
     if (!e.dataTransfer.getData("application/x-chaincap-file") && !dragUid) return;
     e.preventDefault();
-    dropInto(state.chain, state.chain.length, e);
+    clearDropMarks();
+    dropInto(state.chain, mainIndexAt(e.clientX), e);
   });
   $("#split-chain").onclick = splitChain;
   $("#clear-chain").onclick = () => {

@@ -161,7 +161,8 @@ h2 { font-size: 17px; font-weight: 700; }
 .pedal .enclosure { min-height: 300px; }
 .pedal-foot { margin-top: auto !important; }
 .pedal + .pedal::before { margin-right: 0; }
-.pedal.drop-before .enclosure { box-shadow: -6px 0 0 var(--focus); }
+.pedal.drop-before .enclosure, .split-node.drop-before .split-block { box-shadow: -6px 0 0 var(--focus); }
+.split-node.drop-after .split-block { box-shadow: 6px 0 0 var(--focus); }
 .pedal.drop-after .enclosure { box-shadow: 6px 0 0 var(--focus); }
 .pedal.dragging { opacity: .4; }
 
