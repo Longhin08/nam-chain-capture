@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app import server  # noqa: E402
 
-client = TestClient(server.app)
+client = TestClient(server.app, base_url="http://127.0.0.1")
 
 
 def wav_bytes(x, sr=48000):
@@ -143,3 +143,26 @@ def test_job_ids_are_validated():
 def test_static_ui_is_served():
     r = client.get("/")
     assert r.status_code == 200 and "Chain Capture" in r.text
+
+
+def test_rejects_foreign_host_header():
+    other = TestClient(server.app, base_url="http://evil.example")
+    assert other.get("/api/status").status_code == 403
+
+
+def test_token_required_when_configured(monkeypatch):
+    monkeypatch.setattr(server, "TOKEN", "segredo")
+    assert client.get("/api/files").status_code == 401
+    assert client.get("/api/files", headers={"X-Chaincap-Token": "errado"}).status_code == 401
+    assert client.get("/api/files", headers={"X-Chaincap-Token": "segredo"}).status_code == 200
+    assert client.get("/api/files?token=segredo").status_code == 200
+    assert client.get("/").status_code == 200  # a página em si não precisa
+
+
+def test_status_reports_gpu_runtime():
+    s = client.get("/api/status").json()
+    assert set(s["gpu_runtime"]) >= {"supported", "nvidia_detected", "installed", "installing"}
+
+
+def test_worker_command_uses_desktop_entrypoint():
+    assert server.worker_base()[-1].endswith("desktop_main.py")

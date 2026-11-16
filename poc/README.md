@@ -47,6 +47,31 @@ python -m chaincap run    data/chain.json --input data/v3_0_0.wav --out out --ar
 }
 ```
 
+## App desktop (desenvolvimento)
+
+O app é o mesmo servidor + interface dentro de uma janela nativa (pywebview: WebView2 no Windows, WebKit no macOS), empacotado com PyInstaller. Um único executável faz tudo:
+
+| Comando | O que faz |
+|---|---|
+| `NAM Chain Capture` | abre a janela (servidor numa porta local aleatória, com token por sessão) |
+| `… --browser` | abre no navegador padrão, se a janela nativa não estiver disponível |
+| `… --self-test` | gera uma captura + IR sintéticos, processa a cadeia, treina e exporta (o CI roda isso no binário empacotado) |
+| `… --serve [PORTA]` | só o servidor, sem janela |
+| `… --worker run …` | (interno) treino de um job, chamado pelo próprio app |
+| `… --gpu-check` | (interno) testa o PyTorch CUDA baixado |
+
+Rodar sem empacotar: `cd poc && ../.venv/bin/python desktop_main.py` (precisa de `pip install -r requirements-desktop.txt`).
+
+Gerar os instaladores:
+- **Pelo CI (recomendado):** o workflow [`.github/workflows/desktop.yml`](../.github/workflows/desktop.yml) compila no Windows e no macOS (Apple Silicon), roda os testes e o `--self-test` dentro do app empacotado e sobe o `Setup.exe` e o `.dmg` como artefatos. Um push de tag `v*` (ex.: `git tag v0.1.0 && git push --tags`) cria um **rascunho** de Release com os dois arquivos; você revisa e publica.
+- **Local:** `cd poc && pyinstaller packaging/nam_chain_capture.spec --noconfirm`. No Windows, depois `iscc /DAppVersion=0.1.0 packaging\windows.iss`.
+
+Pacote de GPU (Windows + NVIDIA), em `app/gpu_runtime.py`:
+- O instalador leva o PyTorch CPU.
+- Com placa NVIDIA, o app procura no índice oficial (`download.pytorch.org/whl/cuXXX`) o wheel CUDA da **mesma versão** do torch embutido, baixa, confere o sha256, extrai em `%APPDATA%\NAM Chain Capture\gpu-runtime` e testa com `--gpu-check`.
+- Só o processo de treino carrega esse torch (por um import hook); a interface segue no CPU.
+- Se o app for atualizado com outro torch, o pacote antigo é ignorado e o botão reaparece.
+
 ## Saídas (`--out`)
 
 | Arquivo | O que é |

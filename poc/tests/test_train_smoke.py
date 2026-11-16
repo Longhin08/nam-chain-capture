@@ -39,7 +39,7 @@ def test_cli_run_smoke(tmp_path):
     out = tmp_path / "out"
     rc = main([
         "run", str(tmp_path / "chain.json"), "--input", str(inp), "--out", str(out),
-        "--smoke", "--skip-input-check", "--gpu-usd-per-hour", "0.5",
+        "--smoke", "--epochs", "1", "--skip-input-check", "--gpu-usd-per-hour", "0.5",
     ])
     assert rc == 0
     report = json.loads((out / "report.json").read_text())

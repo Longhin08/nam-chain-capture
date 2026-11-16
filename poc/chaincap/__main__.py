@@ -81,7 +81,8 @@ def cmd_run(args) -> int:
         batch_size=args.batch_size,
         basename=args.basename,
         metadata=metadata,
-        trainer_kwargs={"fast_dev_run": True} if args.smoke else None,
+        # Treino real mínimo (passa por checkpoints/export como um job de verdade).
+        trainer_kwargs={"limit_train_batches": 2, "limit_val_batches": 1} if args.smoke else None,
         skip_input_check=args.skip_input_check,
         progress_path=Path(args.out) / "progress.json",
     )
@@ -133,7 +134,7 @@ def main(argv=None) -> int:
             s.add_argument("--gpu-usd-per-hour", type=float, default=None,
                            help="preço da GPU, para estimar custo do job")
             s.add_argument("--smoke", action="store_true",
-                           help="1 passo de treino só para testar o pipeline")
+                           help="treino de 2 passos (use com --epochs 1) só para testar o pipeline")
             s.add_argument("--skip-input-check", action="store_true",
                            help=argparse.SUPPRESS)
     args = p.parse_args(argv)

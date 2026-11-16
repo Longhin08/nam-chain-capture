@@ -27,7 +27,22 @@ const state = {
 
 // ------------------------------------------------------------ utilidades
 
+// O app desktop abre a página com ?token=…; guardamos e limpamos a URL.
+const TOKEN = (() => {
+  const q = new URLSearchParams(location.search);
+  let t = q.get("token");
+  try {
+    if (t) sessionStorage.setItem("chaincap.token", t);
+    else t = sessionStorage.getItem("chaincap.token");
+  } catch {}
+  if (q.has("token")) history.replaceState(null, "", location.pathname);
+  return t || "";
+})();
+const withToken = (url) => (TOKEN ? url + (url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(TOKEN) : url);
+const desktopApi = () => (window.pywebview && window.pywebview.api) || null;
+
 async function api(path, opts = {}) {
+  opts.headers = { ...(opts.headers || {}), ...(TOKEN ? { "X-Chaincap-Token": TOKEN } : {}) };
   const res = await fetch(path, opts);
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
@@ -92,12 +107,52 @@ function renderStatus() {
     };
     v3.append(b);
   }
-  const gpu = document.createElement("span");
-  gpu.className = "chip " + (s.gpu ? "ok" : "bad");
-  gpu.innerHTML = `<span class="dot"></span>${s.gpu ? "GPU: " + s.gpu : "Sem GPU: treino lento"}`;
-  el.append(v3, gpu);
+  el.append(v3, gpuChip(s));
   renderTrainNote();
   renderDiSelect();
+}
+
+function gpuChip(s) {
+  const r = s.gpu_runtime || {};
+  const chip = document.createElement("span");
+  const dot = `<span class="dot"></span>`;
+  if (r.installing) {
+    chip.className = "chip bad";
+    const pct = r.total_bytes ? ` ${Math.floor((100 * r.done_bytes) / r.total_bytes)}%` : "";
+    const phase = { procurando: "Procurando PyTorch CUDA", baixando: "Baixando pacote de GPU", instalando: "Instalando pacote de GPU", testando: "Testando a GPU" }[r.phase] || "Preparando GPU";
+    chip.innerHTML = `${dot}${phase}…${pct}`;
+    return chip;
+  }
+  if (s.gpu) {
+    chip.className = "chip ok";
+    chip.innerHTML = `${dot}GPU: `;
+    chip.append(document.createTextNode(s.gpu));
+    if (r.installed) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = "Remover pacote";
+      b.title = "Apaga o PyTorch CUDA baixado (libera ~4 GB); o treino volta a usar a CPU";
+      b.onclick = async () => {
+        try { await api("/api/gpu/remove", { method: "POST" }); await refreshStatus(); } catch (e) { toast(e.message, true); }
+      };
+      chip.append(" ", b);
+    }
+    return chip;
+  }
+  chip.className = "chip bad";
+  chip.innerHTML = `${dot}${r.error ? "" : "Sem GPU: treino lento"}`;
+  if (r.error) chip.append(document.createTextNode(r.error));
+  if (r.supported && r.nvidia_detected) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = r.error ? "Tentar de novo" : "Ativar GPU NVIDIA (~2,5 GB)";
+    b.title = "Baixa o PyTorch CUDA oficial para treinar na sua placa de vídeo";
+    b.onclick = async () => {
+      try { await api("/api/gpu/install", { method: "POST" }); await refreshStatus(); pollStatus(); } catch (e) { toast(e.message, true); }
+    };
+    chip.append(" ", b);
+  }
+  return chip;
 }
 
 let statusPoll;
@@ -105,7 +160,8 @@ function pollStatus() {
   clearInterval(statusPoll);
   statusPoll = setInterval(async () => {
     await refreshStatus();
-    if (!state.status.v3.downloading) clearInterval(statusPoll);
+    const busy = state.status.v3.downloading || (state.status.gpu_runtime && state.status.gpu_runtime.installing);
+    if (!busy) clearInterval(statusPoll);
   }, 1500);
 }
 
@@ -665,7 +721,15 @@ async function renderJobs() {
       if (!j.files.includes(file)) return;
       const a = document.createElement("a");
       a.className = "small"; a.textContent = label;
-      a.href = `/api/jobs/${j.id}/files/${file}`; a.download = file;
+      a.href = withToken(`/api/jobs/${j.id}/files/${file}`); a.download = file;
+      a.addEventListener("click", async (e) => {
+        const d = desktopApi();
+        if (!d) return; // navegador: download normal
+        e.preventDefault();
+        const r = await d.save_job_file(j.id, file);
+        if (r && r.saved) toast(`Salvo em ${r.saved}`);
+        else if (r && r.error) toast(r.error, true);
+      });
       actions.append(a);
     };
     if (j.status === "done" || j.status === "rejected") {
@@ -715,6 +779,7 @@ async function boot() {
   setupPreview();
   try {
     await refreshStatus();
+    if (state.status.v3.downloading) pollStatus();
     setupTrain();
     await Promise.all([refreshFiles(), refreshJobs()]);
     renderChain();

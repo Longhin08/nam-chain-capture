@@ -23,3 +23,5 @@ lightning_logs/
 node_modules/
 data/
 poc/workspace/
+poc/build/
+poc/dist/

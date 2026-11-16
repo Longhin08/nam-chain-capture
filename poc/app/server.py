@@ -12,6 +12,7 @@ Tudo fica em `poc/workspace/` (ou `$CHAINCAP_WORKSPACE`):
 
 import chaincap  # noqa: F401  (shim do tkinter antes de qualquer nam)
 
+import hmac
 import io
 import json
 import os
@@ -44,7 +45,13 @@ from chaincap.chain import (
 )
 from chaincap.train import V3_MD5, md5
 
-POC_DIR = Path(__file__).resolve().parents[1]
+from . import gpu_runtime
+
+FROZEN = getattr(sys, "frozen", False)
+POC_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+# Token por sessão (o app desktop gera um a cada abertura). Sem ele, a API recusa.
+TOKEN = os.environ.get("CHAINCAP_TOKEN") or None
 WS = Path(os.environ.get("CHAINCAP_WORKSPACE", POC_DIR / "workspace")).resolve()
 FILES = WS / "files"
 JOBS = WS / "jobs"
@@ -64,6 +71,29 @@ for k in KINDS:
 JOBS.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="NAM Chain Capture")
+
+
+def worker_base() -> List[str]:
+    """Comando que roda o worker (treino / teste de GPU) neste ambiente."""
+    if FROZEN:
+        return [sys.executable]
+    return [sys.executable, str(POC_DIR / "desktop_main.py")]
+
+
+_LOCAL_HOSTS = ("127.0.0.1", "localhost", "[::1]")
+
+
+@app.middleware("http")
+async def _guard(request, call_next):
+    host = (request.headers.get("host") or "").rsplit(":", 1)[0]
+    if host not in _LOCAL_HOSTS:
+        # Bloqueia DNS rebinding: só aceitamos o próprio endereço local.
+        return JSONResponse({"detail": "Host não permitido"}, status_code=403)
+    if TOKEN and request.url.path.startswith("/api/"):
+        got = request.headers.get("x-chaincap-token") or request.query_params.get("token") or ""
+        if not hmac.compare_digest(got, TOKEN):
+            return JSONResponse({"detail": "Sessão inválida; reabra o app"}, status_code=401)
+    return await call_next(request)
 
 
 # ------------------------------------------------------------------ arquivos
@@ -301,16 +331,42 @@ def download_v3():
     return _v3_status()
 
 
-@app.get("/api/status")
-def status():
+def _gpu_name() -> Optional[str]:
     import torch
 
+    if torch.cuda.is_available():
+        return torch.cuda.get_device_name(0)
+    if torch.backends.mps.is_available():
+        return "Apple (Metal)"
+    m = gpu_runtime.read_marker(WS)
+    return m.get("device") if m else None
+
+
+@app.get("/api/status")
+def status():
     return {
         "v3": _v3_status(),
-        "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        "gpu": _gpu_name(),
+        "gpu_runtime": gpu_runtime.status(WS),
         "archs": list(ARCHITECTURES),
         "workspace": str(WS),
+        "desktop": FROZEN or bool(os.environ.get("CHAINCAP_DESKTOP")),
     }
+
+
+@app.post("/api/gpu/install")
+def gpu_install():
+    if not gpu_runtime.status(WS)["supported"]:
+        raise HTTPException(400, "Pacote de GPU só existe para Windows 64 bits")
+    return gpu_runtime.install(WS, worker_base())
+
+
+@app.post("/api/gpu/remove")
+def gpu_remove():
+    try:
+        return gpu_runtime.remove(WS)
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
 
 
 # --------------------------------------------------------------------- jobs
@@ -366,8 +422,8 @@ def _worker():
         job = json.loads((d / "job.json").read_text())
         if job["status"] != "queued":
             continue
-        cmd = [
-            sys.executable, "-m", "chaincap", "run", str(d / "chain.json"),
+        cmd = worker_base() + [
+            "--worker", "run", str(d / "chain.json"),
             "--input", str(V3), "--out", str(d / "out"),
             "--epochs", str(job["epochs"]), "--arch", job["arch"],
         ]
@@ -375,7 +431,11 @@ def _worker():
             cmd += ["--gpu-usd-per-hour", str(job["gpu_usd_per_hour"])]
         _write_job(jid, status="running", started_at=time.time())
         with open(d / "log.txt", "w") as log:
-            proc = subprocess.Popen(cmd, cwd=POC_DIR, stdout=log, stderr=subprocess.STDOUT)
+            proc = subprocess.Popen(
+                cmd, cwd=WS, stdout=log, stderr=subprocess.STDOUT,
+                env=dict(os.environ, CHAINCAP_LOG=str(d / "log.txt")),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
             with _jobs_lock:
                 _running.update(id=jid, proc=proc)
             rc = proc.wait()
@@ -403,8 +463,22 @@ def _recover():
         _wake.set()
 
 
+def shutdown_jobs() -> None:
+    """Ao fechar o app: interrompe o treino em andamento (vira 'failed' na próxima abertura)."""
+    with _jobs_lock:
+        proc = _running.get("proc")
+    if proc is not None and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
 _recover()
 threading.Thread(target=_worker, daemon=True).start()
+if os.environ.get("CHAINCAP_AUTO_V3") and not V3.is_file():
+    download_v3()
 
 
 class JobIn(BaseModel):
@@ -527,4 +601,4 @@ async def _no_cache_static(request, call_next):
     return resp
 
 
-app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="static")
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")

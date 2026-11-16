@@ -178,6 +178,8 @@ def train_chain_model(
         + ([ProgressFile(progress_path)] if progress_path else []),
         default_root_dir=str(outdir),
         enable_progress_bar=False,
+        # Sem TensorBoard: não usamos os logs e o app desktop não empacota o pacote.
+        logger=False,
         **learning_config["trainer"],
     )
     with _filter_warnings("ignore", category=UserWarning):
