@@ -1006,6 +1006,9 @@ const STATUS_LABEL = {
 
 async function refreshJobs() {
   state.jobs = await getJSON("/api/jobs");
+  // A lâmpada piloto "respira" enquanto um treino está rodando.
+  const pilot = $("#pilot");
+  if (pilot) pilot.classList.toggle("busy", state.jobs.some((j) => j.status === "running"));
   await renderJobs();
   renderTrainNote();
 }

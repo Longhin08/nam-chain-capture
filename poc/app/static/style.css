@@ -1,10 +1,21 @@
 :root {
-  --felt: #1d2737;
-  --felt-deep: #161e2b;
-  --rail: #283346;
-  --rail-line: #3a475d;
-  --ink: #edeae2;
-  --muted: #9aa6b8;
+  /* Amp valvulado: gabinete de tolex, pano de grade, painéis creme, latão. */
+  --tolex: #2a1714;
+  --tolex-hi: #3b221d;
+  --grille: #33251e;
+  --grille-thread: #5a4436;
+  --cream: #eadfc6;
+  --cream-deep: #dccdaa;
+  --cream-line: #b8a47a;
+  --brass: #c19a4b;
+  --brass-dark: #8a6a2c;
+  --lamp: #ff3b2a;
+  --felt: var(--tolex);
+  --felt-deep: #1d0f0d;
+  --rail: #3a2621;
+  --rail-line: #5c4036;
+  --ink: #f1e6cf;
+  --muted: #bda98d;
   --nam: #e3b23c;
   --nam-shade: #b98b22;
   --ir: #7bb8a8;
@@ -14,11 +25,11 @@
   --enamel-ink: #1b1d22;
   --led-on: #ff5a4e;
   --led-off: #4a3236;
-  --cable: #c9ced6;
+  --cable: #d9cbab;
   --ok: #8fd19e;
   --warn: #f2c462;
   --danger: #f0716a;
-  --focus: #9cc8ff;
+  --focus: #f0c66a;
   --radius-pedal: 14px;
   --radius-ui: 8px;
   font-family: "Archivo", system-ui, sans-serif;
@@ -361,4 +372,155 @@ audio { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
+}
+
+
+/* =================================================================
+   Tema: amplificador valvulado antigo (visual próprio, sem marca)
+   ================================================================= */
+
+h1, h2, .split-title, .job-title { font-family: "Fraunces", Georgia, serif; font-variation-settings: "opsz" 48; }
+
+/* gabinete de tolex com grão de couro */
+body {
+  background-color: var(--tolex);
+  background-image:
+    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, .035) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 70% 60%, rgba(0, 0, 0, .35) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 50% 50%, rgba(255, 220, 180, .025) 0 2px, transparent 3px);
+  background-size: 4px 4px, 5px 5px, 9px 9px;
+}
+
+/* topo do chassi: faixa de tolex + friso de latão */
+.top {
+  background: linear-gradient(180deg, var(--tolex-hi), var(--tolex));
+  border-bottom: 3px solid var(--brass-dark);
+  box-shadow: inset 0 -1px 0 var(--brass), 0 4px 14px rgba(0, 0, 0, .45);
+}
+.nameplate {
+  position: relative; display: inline-flex; align-items: center; gap: 14px;
+  padding: 6px 26px 6px 18px; border-radius: 6px;
+  background: linear-gradient(180deg, #e2c27a, var(--brass) 45%, var(--brass-dark));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .5), inset 0 -2px 3px rgba(0, 0, 0, .35), 0 2px 6px rgba(0, 0, 0, .5);
+}
+.nameplate::before, .nameplate::after { /* parafusos */
+  content: ""; position: absolute; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #f6e2b0, #6e5222 70%);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .3);
+}
+.nameplate::before { left: 6px; }
+.nameplate::after { right: 8px; }
+.brand {
+  color: #2a1a0c; font-style: italic; font-weight: 800; font-size: 25px; letter-spacing: .01em;
+  font-variation-settings: "opsz" 96;
+  text-shadow: 0 1px 0 rgba(255, 240, 200, .55), 0 -1px 0 rgba(0, 0, 0, .25);
+}
+/* lâmpada piloto (joia vermelha): acende devagar, como válvula aquecendo */
+.pilot {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: radial-gradient(circle at 38% 32%, #ffd0c4 0 12%, var(--lamp) 34%, #7a0d06 78%);
+  box-shadow: 0 0 0 2px #6e5222, 0 0 0 3px #e2c27a;
+  animation: warmup 1.6s ease-out both;
+}
+.pilot.busy { animation: warmup 1.6s ease-out both, breathe 2.4s ease-in-out 1.6s infinite; }
+@keyframes warmup {
+  from { filter: brightness(.25) saturate(.4); box-shadow: 0 0 0 2px #6e5222, 0 0 0 3px #e2c27a; }
+  to { filter: none; box-shadow: 0 0 0 2px #6e5222, 0 0 0 3px #e2c27a, 0 0 14px 3px rgba(255, 70, 40, .55); }
+}
+@keyframes breathe {
+  50% { box-shadow: 0 0 0 2px #6e5222, 0 0 0 3px #e2c27a, 0 0 22px 7px rgba(255, 90, 40, .75); }
+}
+.chip { background: rgba(0, 0, 0, .3); border: 1px solid var(--rail-line); color: var(--ink); }
+
+/* painéis de controle creme: texto escuro, campos rebaixados */
+.library, .panel, .job, .board-alert, .undo-bar {
+  --ink: #2b2018;
+  --muted: #6e5b46;
+  --felt-deep: var(--cream-deep);
+  --rail: #e4d6b6;
+  --rail-line: var(--cream-line);
+  --focus: #a0521d;
+  /* cores de estado legíveis sobre creme */
+  --warn: #9a4a12;
+  --danger: #b3261e;
+  --ok: #2f7a3b;
+  color: var(--ink);
+}
+.library { align-self: start; }
+.library, .panel, .job {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .35), transparent 40%),
+    var(--cream);
+  border-radius: 10px;
+  border: 1px solid #fff4dc;
+  box-shadow: 0 0 0 3px var(--brass-dark), 0 6px 18px rgba(0, 0, 0, .5), inset 0 -2px 0 rgba(0, 0, 0, .06);
+}
+.library { padding: 16px; }
+.board-alert { background: #f3e2b5; border-color: var(--brass); }
+.undo-bar { background: var(--cream); border: 1px solid var(--cream-line); }
+.field input, .field select, .ir-opts .trunc-ms {
+  background: #f7efdc; color: var(--ink);
+  box-shadow: inset 0 2px 3px rgba(80, 50, 20, .18);
+}
+.file { background: #f3e9d2; box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .05); }
+.tabs button[aria-selected="true"] { background: var(--cream); box-shadow: 0 1px 2px rgba(0, 0, 0, .2); }
+.drop { background: rgba(255, 255, 255, .25); }
+
+/* títulos da área principal (sobre o tolex) */
+.board-head h2, .jobs-wrap > h2 { color: #f3e3bd; font-size: 20px; }
+
+/* botões: latão e baquelite */
+.primary {
+  background: linear-gradient(180deg, #e7c77e, var(--brass) 55%, var(--brass-dark));
+  color: #241608; border: 1px solid #6e5222;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45), 0 2px 0 #5b4219;
+}
+.primary:hover { background: linear-gradient(180deg, #efd28f, #cfa758 55%, #95742f); }
+.primary:active { transform: translateY(1px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .45); }
+.ghost { color: var(--ink); border-color: var(--rail-line); background: rgba(0, 0, 0, .2); }
+.ghost:hover { border-color: var(--brass); color: #fff4dc; }
+.ghost:disabled { opacity: .45; cursor: not-allowed; }
+.arch label:has(input:checked) { border-color: var(--brass-dark); box-shadow: inset 0 0 0 1px var(--brass-dark), 0 0 0 2px rgba(193, 154, 75, .35); }
+
+/* pedaleira = pano de grade, com friso creme (piping) */
+.board {
+  background-color: var(--grille);
+  background-image:
+    repeating-linear-gradient(45deg, rgba(0, 0, 0, .28) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(-45deg, rgba(255, 228, 190, .07) 0 1px, transparent 1px 4px),
+    linear-gradient(180deg, rgba(255, 255, 255, .03), rgba(0, 0, 0, .25));
+  border-radius: 14px;
+  box-shadow: 0 0 0 3px #d8c79c, 0 0 0 7px var(--tolex-hi), inset 0 10px 30px rgba(0, 0, 0, .55);
+}
+.jack { color: #e6d6b3; }
+.split-block { border-color: rgba(230, 210, 170, .35); background: rgba(20, 10, 8, .35); }
+.branch-row { background: rgba(10, 5, 4, .35); }
+.split-hint, .branch-empty { color: #cdb894; }
+
+/* knobs "cabeça de galinha" em baquelite */
+.knob {
+  background: radial-gradient(circle at 38% 30%, #5a4a40, #1d1512 72%);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .15);
+}
+.knob::after {
+  width: 10px; height: 26px; margin-left: -5px; top: -2px; border-radius: 5px 5px 2px 2px;
+  background: linear-gradient(180deg, #f3e6c8, #cdb88f);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  transform-origin: 50% 29px;
+}
+.mixer .knob::after { height: 21px; transform-origin: 50% 24px; }
+.mixer { background: var(--cream); color: #2b2018; box-shadow: 0 0 0 2px var(--brass-dark); }
+.mixer .knob-label, .mixer .knob-value { color: #2b2018; }
+.mixer .toggle { background: var(--cream-deep); border-color: var(--cream-line); color: #2b2018; }
+.mixer .toggle[aria-pressed="true"] { background: var(--lamp); border-color: #7a0d06; color: #fff4ea; }
+
+/* barras de progresso como VU âmbar */
+.progress { background: #cdbd97; box-shadow: inset 0 1px 2px rgba(0, 0, 0, .3); }
+.progress > span { background: linear-gradient(90deg, #f1b24a, #ff7a2f); }
+.job-state.done { color: #2f7a3b; }
+.job-state.running, .job-state.queued, .job-state.canceling { color: #a0521d; }
+.esr.ótimo { color: #2f7a3b; } .esr.ok { color: #a0521d; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pilot, .pilot.busy { animation: none; box-shadow: 0 0 0 2px #6e5222, 0 0 0 3px #e2c27a, 0 0 14px 3px rgba(255, 70, 40, .55); }
 }
