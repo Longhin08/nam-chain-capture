@@ -12,7 +12,6 @@ const KIND_LABEL = { nam: "Captura NAM", ir: "IR de caixa" };
 const DROP_TEXT = {
   nam: "Solte arquivos .nam aqui ou clique para escolher",
   ir: "Solte IRs .wav aqui ou clique para escolher",
-  di: "Solte gravações DI .wav (48 kHz) aqui ou clique para escolher",
 };
 
 const state = {
@@ -197,9 +196,7 @@ function renderFiles() {
   if (!list.length) {
     const li = document.createElement("li");
     li.className = "empty";
-    li.textContent = state.kind === "di"
-      ? "Nenhum DI ainda. Sem DI, o preview usa um trecho do sinal de treino."
-      : "Nenhum arquivo ainda.";
+    li.textContent = "Nenhum arquivo ainda.";
     ul.append(li);
     return;
   }
@@ -213,7 +210,7 @@ function renderFiles() {
     info.querySelector(".fmeta").textContent = describeFile(f);
     info.title = f.name;
     li.append(info);
-    if (f.kind !== "di" && !f.error) {
+    if (!f.error) {
       li.draggable = true;
       li.addEventListener("dragstart", (e) => {
         e.dataTransfer.setData("application/x-chaincap-file", JSON.stringify({ kind: f.kind, name: f.name }));
@@ -249,8 +246,8 @@ function renderFiles() {
 async function uploadFiles(fileList) {
   for (const file of fileList) {
     const ext = file.name.toLowerCase().split(".").pop();
-    // .nam sempre vai para capturas; .wav vai para a aba aberta (IR ou DI)
-    const kind = ext === "nam" ? "nam" : state.kind === "nam" ? "ir" : state.kind;
+    // .nam vai para capturas; .wav é IR de caixa
+    const kind = ext === "nam" ? "nam" : "ir";
     const fd = new FormData();
     fd.append("kind", kind);
     fd.append("file", file);
@@ -258,10 +255,6 @@ async function uploadFiles(fileList) {
       const r = await api("/api/files", { method: "POST", body: fd });
       const info = await r.json();
       toast(`${info.name} enviado`);
-      if (kind === "di") {
-        // DI novo vira o áudio padrão do preview.
-        try { localStorage.setItem(DI_KEY, info.name); } catch {}
-      }
     } catch (e) {
       toast(e.message, true);
     }
@@ -567,10 +560,6 @@ function renderDiSelect() {
     o.textContent = stem(f.name);
     sel.append(o);
   }
-  const o = document.createElement("option");
-  o.value = "";
-  o.textContent = state.status && state.status.v3.valid ? "Trecho do sinal de treino" : "Trecho do sinal de treino (baixe primeiro)";
-  sel.append(o);
   const builtin = state.status && state.status.builtin_di;
   if ([...sel.options].some((x) => x.value === cur)) sel.value = cur;
   else if (builtin && [...sel.options].some((x) => x.value === builtin)) sel.value = builtin;
@@ -615,13 +604,11 @@ function setupPreview() {
   $("#play-di").onclick = async () => {
     const note = $("#listen-note");
     try {
-      const di = $("#di-select").value;
-      const q = new URLSearchParams({ seconds: $("#di-seconds").value });
-      if (di) q.set("di", di);
+      const q = new URLSearchParams({ seconds: $("#di-seconds").value, di: $("#di-select").value });
       const res = await api(`/api/di-clip?${q}`);
       playBlob(await res.blob());
       note.className = "note";
-      note.textContent = "Tocando o DI sem processamento.";
+      note.textContent = "Tocando a guitarra crua, sem a cadeia.";
     } catch (e) {
       note.textContent = e.message;
       note.className = "note err";

@@ -21,7 +21,6 @@
     <div class="tabs" role="tablist">
       <button role="tab" data-kind="nam" aria-selected="true">Capturas</button>
       <button role="tab" data-kind="ir" aria-selected="false">IRs</button>
-      <button role="tab" data-kind="di" aria-selected="false">DIs</button>
     </div>
     <label class="drop" id="drop">
       <input type="file" id="file-input" multiple hidden>
@@ -48,7 +47,7 @@
         <h2 id="listen-title">Ouvir antes de treinar</h2>
         <div class="row">
           <label class="field">
-            <span>Sinal de entrada</span>
+            <span>Áudio de teste</span>
             <select id="di-select"></select>
           </label>
           <label class="field narrow">
@@ -61,7 +60,7 @@
           </label>
         </div>
         <div class="row buttons">
-          <button type="button" id="play-di" class="secondary">Ouvir DI limpo</button>
+          <button type="button" id="play-di" class="secondary">Ouvir guitarra crua</button>
           <button type="button" id="play-chain" class="primary">Ouvir cadeia</button>
         </div>
         <audio id="player" controls preload="none"></audio>

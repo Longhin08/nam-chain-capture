@@ -39,8 +39,6 @@ def library():
     ir = np.zeros(64, np.float32)
     ir[:3] = [1, 0.5, 0.2]
     assert upload("ir", "cab.wav", wav_bytes(ir)).status_code == 200
-    di = (np.random.default_rng(0).standard_normal(48000 * 3) * 0.1).astype(np.float32)
-    assert upload("di", "riff.wav", wav_bytes(di)).status_code == 200
 
 
 def test_list_files_describes_each_kind():
@@ -50,8 +48,7 @@ def test_list_files_describes_each_kind():
     assert d["nam"][0]["input_level_dbu"] == 12.0
     ir = {f["name"]: f for f in d["ir"]}
     assert ir["cab.wav"]["seconds"] == pytest.approx(64 / 48000, abs=1e-3)
-    di = {f["name"]: f for f in d["di"]}
-    assert di["riff.wav"]["seconds"] == pytest.approx(3.0)
+    assert {f["name"] for f in d["di"]} == {p.name for p in server.DEMO_DI_DIR.glob("*.wav")}
 
 
 def test_upload_rejects_wrong_extension_and_invalid_content():
@@ -78,7 +75,7 @@ def test_delete_cannot_escape_directory():
 
 def test_preview_returns_audio_with_level_headers():
     r = client.post("/api/preview", json={
-        "di": "riff.wav", "seconds": 2,
+        "seconds": 2,
         "stages": [
             {"type": "nam", "file": "drive.nam", "input_gain_db": 3},
             {"type": "ir", "file": "cab.wav", "ir_max_ms": 20},
@@ -94,16 +91,9 @@ def test_preview_returns_audio_with_level_headers():
 
 def test_preview_skips_bypassed_stages_and_rejects_empty_chain():
     r = client.post("/api/preview", json={
-        "di": "riff.wav", "stages": [{"type": "nam", "file": "drive.nam", "enabled": False}],
+        "stages": [{"type": "nam", "file": "drive.nam", "enabled": False}],
     })
     assert r.status_code == 400 and "vazia" in r.json()["detail"]
-
-
-def test_preview_without_di_needs_training_signal():
-    if server.V3.exists():
-        pytest.skip("workspace já tem v3")
-    r = client.post("/api/preview", json={"stages": [{"type": "nam", "file": "drive.nam"}]})
-    assert r.status_code == 409
 
 
 def test_job_requires_training_signal():
@@ -184,40 +174,23 @@ def test_status_exposes_cab_hints():
     assert s["builtin_cab"] == server.BUILTIN_CAB and "amp" in s["amp_only_gear"]
 
 
-def test_builtin_demo_di_is_seeded_and_previewable():
-    di = {f["name"]: f for f in client.get("/api/files").json()["di"]}
-    assert server.BUILTIN_DI in di
-    assert di[server.BUILTIN_DI]["sample_rate"] == 48000
-    assert di[server.BUILTIN_DI]["seconds"] > 15
-    r = client.post("/api/preview", json={
-        "di": server.BUILTIN_DI, "seconds": 3,
-        "stages": [{"type": "nam", "file": "drive.nam"}],
-    })
-    assert r.status_code == 200 and len(r.content) > 3 * 48000 * 2
 
-
-def test_preview_resamples_44k_di():
-    x = (np.sin(2 * np.pi * 220 * np.arange(44100 * 2) / 44100) * 0.3).astype(np.float32)
-    assert upload("di", "loop44.wav", wav_bytes(x, sr=44100)).status_code == 200
-    r = client.post("/api/preview", json={
-        "di": "loop44.wav", "seconds": 1, "stages": [{"type": "ir", "file": "cab.wav"}],
-    })
-    assert r.status_code == 200, r.text
-    sr, y = wavfile.read(io.BytesIO(r.content))
-    assert sr == 48000 and len(y) == 48000
-    r = client.get("/api/di-clip?di=loop44.wav&seconds=1", headers={})
-    assert r.status_code == 200
-
-
-def test_all_builtin_dis_seeded_and_legacy_riff_removed(tmp_path, monkeypatch):
-    di_dir = server.FILES / "di"
-    (di_dir / server._LEGACY_DEMO_DI).write_bytes(b"x")  # instalação antiga
-    (server.WS / ".builtin-dis.json").unlink(missing_ok=True)
-    server._seed_builtin_di()
-    names = {f["name"] for f in client.get("/api/files").json()["di"]}
-    assert server._LEGACY_DEMO_DI not in names
-    expected = {p.name for p in server.DEMO_DI_DIR.glob("*.wav")}
-    assert len(expected) == 3 and expected <= names
+def test_preview_uses_only_builtin_test_audio():
+    names = [f["name"] for f in client.get("/api/files").json()["di"]]
+    assert server.BUILTIN_DI in names and len(names) == 3
     for f in client.get("/api/files").json()["di"]:
-        if f["name"] in expected:
-            assert f["sample_rate"] == 48000 and f["seconds"] > 9
+        assert f["sample_rate"] == 48000 and f["seconds"] > 9
+    # sem escolher: usa o padrão
+    r = client.post("/api/preview", json={"seconds": 2, "stages": [{"type": "nam", "file": "drive.nam"}]})
+    assert r.status_code == 200 and len(r.content) > 2 * 48000 * 2
+    # cada um dos embutidos funciona
+    for n in names:
+        assert client.get(f"/api/di-clip?di={n}&seconds=1").status_code == 200
+    # nada fora da lista
+    assert client.get("/api/di-clip?di=../../v3_0_0.wav&seconds=1").status_code == 404
+    assert client.get("/api/di-clip?di=outro.wav").status_code == 404
+
+
+def test_upload_of_custom_test_audio_is_not_accepted():
+    r = upload("di", "meu.wav", wav_bytes(np.zeros(4800, np.float32)))
+    assert r.status_code == 422

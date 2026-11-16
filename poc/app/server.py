@@ -60,19 +60,15 @@ V3_DOWNLOAD = (
     "https://drive.usercontent.google.com/download?"
     "id=1Pgf8PdE0rKB1TD4TRPKbpNo1ByR3IOm9&export=download&confirm=t"
 )
-KINDS = ("nam", "ir", "di")
+KINDS = ("nam", "ir")
 MAX_UPLOAD = 64 * 1024 * 1024
 PREVIEW_MAX_S = 30.0
-# Sem DI enviado, o preview usa este trecho do sinal de treino: é a janela de
-# 15 s com mais guitarra tocada de verdade (ataques + notas afinadas) no v3.
-V3_PREVIEW_START_S = 37.0
 # IR de caixa gerado pelo app (ver chaincap/cab_ir.py), livre para distribuir.
 BUILTIN_CAB = "Caixa 4x12 genérica.wav"
-# DIs de exemplo: gravações CC0 do Freesound (ver packaging/make_demo_dis.py).
+# Áudios de teste do preview: só estas gravações CC0 do Freesound, embutidas
+# no app (ver packaging/make_demo_dis.py). O usuário escolhe entre elas.
 DEMO_DI_DIR = Path(__file__).resolve().parent / "assets" / "di"
 BUILTIN_DI = "Strat limpa - loop (mil_dew).wav"  # padrão do preview
-# Riff antigo montado com notas soltas: substituído pelas gravações reais.
-_LEGACY_DEMO_DI = "Guitarra limpa (exemplo).wav"
 # Tipos de captura sem caixa: precisam de IR depois para não soarem ásperos.
 AMP_ONLY_GEAR = ("amp", "pedal_amp", "preamp")
 
@@ -94,30 +90,7 @@ def _seed_builtin_cab() -> None:
     marker.write_text("1")
 
 
-def _seed_builtin_di() -> None:
-    """Coloca os DIs de exemplo na aba DIs. Cada um entra uma vez só: se o
-    usuário apagar, não volta; DIs novos de versões futuras do app entram."""
-    seeded_file = WS / ".builtin-dis.json"
-    try:
-        seeded = set(json.loads(seeded_file.read_text()))
-    except (OSError, ValueError):
-        seeded = set()
-    if _LEGACY_DEMO_DI not in seeded:
-        (FILES / "di" / _LEGACY_DEMO_DI).unlink(missing_ok=True)
-        seeded.add(_LEGACY_DEMO_DI)
-    if DEMO_DI_DIR.is_dir():
-        for src in sorted(DEMO_DI_DIR.glob("*.wav")):
-            if src.name in seeded:
-                continue
-            dest = FILES / "di" / src.name
-            if not dest.exists():
-                shutil.copy2(src, dest)
-            seeded.add(src.name)
-    seeded_file.write_text(json.dumps(sorted(seeded), ensure_ascii=False))
-
-
 _seed_builtin_cab()
-_seed_builtin_di()
 
 app = FastAPI(title="NAM Chain Capture")
 
@@ -198,22 +171,28 @@ def _describe(kind: str, p: Path) -> dict:
     return info
 
 
+def _demo_dis() -> List[Path]:
+    return sorted(DEMO_DI_DIR.glob("*.wav")) if DEMO_DI_DIR.is_dir() else []
+
+
 @app.get("/api/files")
 def list_files():
-    return {
+    out = {
         k: [_describe(k, p) for p in sorted((FILES / k).iterdir()) if p.is_file()]
         for k in KINDS
     }
+    out["di"] = [_describe("di", p) for p in _demo_dis()]
+    return out
 
 
 @app.post("/api/files")
-async def upload(kind: Literal["nam", "ir", "di"] = Form(...), file: UploadFile = File(...)):
+async def upload(kind: Literal["nam", "ir"] = Form(...), file: UploadFile = File(...)):
     name = _safe_name(file.filename or "arquivo")
     ext = os.path.splitext(name)[1]
     if kind == "nam" and ext != ".nam":
         raise HTTPException(400, "Capturas precisam ser arquivos .nam")
-    if kind in ("ir", "di") and ext != ".wav":
-        raise HTTPException(400, "IRs e DIs precisam ser arquivos .wav")
+    if kind == "ir" and ext != ".wav":
+        raise HTTPException(400, "IRs precisam ser arquivos .wav")
     data = await file.read(MAX_UPLOAD + 1)
     if len(data) > MAX_UPLOAD:
         raise HTTPException(413, "Arquivo maior que 64 MB")
@@ -223,10 +202,8 @@ async def upload(kind: Literal["nam", "ir", "di"] = Form(...), file: UploadFile 
     try:
         if kind == "nam":
             read_nam_file(tmp)
-        elif kind == "ir":
-            load_ir(tmp)
         else:
-            read_wav_mono(tmp)
+            load_ir(tmp)
     except Exception as e:
         tmp.unlink(missing_ok=True)
         raise HTTPException(400, f"{name}: {e}")
@@ -291,20 +268,12 @@ def _wav_bytes(y: np.ndarray) -> bytes:
 
 def _di_clip(di: Optional[str], seconds: float) -> np.ndarray:
     n = int(min(seconds, PREVIEW_MAX_S) * SAMPLE_RATE)
-    if di:
-        x, sr = read_wav_mono(_file_path("di", di))
-        if sr != SAMPLE_RATE:
-            # Loops da internet costumam vir em 44,1 kHz: reamostra para 48 kHz.
-            from scipy.signal import resample_poly
-
-            g = int(np.gcd(sr, SAMPLE_RATE))
-            x = resample_poly(x[: int(seconds * sr) + sr], SAMPLE_RATE // g, sr // g).astype(np.float32)
-        return x[:n]
-    if not V3.is_file():
-        raise HTTPException(409, "Envie um DI ou baixe o sinal de treino para ouvir o preview")
-    x, _ = read_wav_mono(V3)
-    s = int(V3_PREVIEW_START_S * SAMPLE_RATE)
-    return x[s : s + n]
+    name = Path(di or BUILTIN_DI).name
+    path = DEMO_DI_DIR / name
+    if path not in _demo_dis():
+        raise HTTPException(404, f"Áudio de teste não encontrado: {name}")
+    x, _ = read_wav_mono(path)
+    return x[:n]
 
 
 class PreviewIn(BaseModel):
