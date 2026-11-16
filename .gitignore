@@ -10,8 +10,8 @@ venv/
 # Áudio / modelos gerados localmente (não versionar capturas de terceiros)
 *.wav
 *.nam
-!tests/fixtures/**/*.wav
-!tests/fixtures/**/*.nam
+!**/tests/fixtures/**/*.wav
+!**/tests/fixtures/**/*.nam
 outputs/
 lightning_logs/
 
@@ -21,3 +21,4 @@ lightning_logs/
 .idea/
 .vscode/
 node_modules/
+data/

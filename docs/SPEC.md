@@ -53,7 +53,7 @@ Não vender "juntar capturas". Vender **"monte seu preset para a sua pedaleira"*
 ## 6. Riscos a resolver antes de escalar
 
 - **Licença**: muitas capturas do Tone3000 restringem redistribuição/derivados. Uso próprio OK; compartilhar o resultado é zona cinzenta. Termos de uso claros desde o início.
-- **Dependência de plataforma** (Tone3000).
+- **Dependência de plataforma** (Tone3000). Uso comercial da API exige acordo e aprovação prévia; ver [TONE3000.md](TONE3000.md).
 - **Custo variável de GPU**: modelo de negócio por crédito ou assinatura, nunca "grátis ilimitado".
 
 ## 7. Plano de validação (antes do SaaS)
@@ -150,8 +150,12 @@ Perfil de dispositivo define o máximo; usuário pode escolher abaixo.
 - [ ] Inferência de DI curto pela cadeia, streaming para o navegador
 
 ### Épico 5 — Integração Tone3000
-- [ ] Busca e importação via API
+> Notas de viabilidade, endpoints e restrições dos termos: [TONE3000.md](TONE3000.md)
+- [ ] Contato com o Tone3000: permissão para derivados + acordo comercial (pré-requisito para lançar)
+- [ ] Login OAuth (PKCE) + escolha via `select_tone`
+- [ ] Busca e importação via API (download sob demanda, sem cache do catálogo)
 - [ ] Exibir licença da captura e bloquear derivados quando a licença proibir
+- [ ] Preservar criador/licença de cada estágio no metadata do `.nam` final
 
 ### Épico 6 — Billing
 - [ ] Créditos por captura; custo real de GPU por job
