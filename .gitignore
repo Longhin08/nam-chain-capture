@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+*.egg-info/
+
+# Áudio / modelos gerados localmente (não versionar capturas de terceiros)
+*.wav
+*.nam
+!tests/fixtures/**/*.wav
+!tests/fixtures/**/*.nam
+outputs/
+lightning_logs/
+
+# Ambiente
+.env
+.DS_Store
+.idea/
+.vscode/
+node_modules/
