@@ -258,6 +258,10 @@ async function uploadFiles(fileList) {
       const r = await api("/api/files", { method: "POST", body: fd });
       const info = await r.json();
       toast(`${info.name} enviado`);
+      if (kind === "di") {
+        // DI novo vira o áudio padrão do preview.
+        try { localStorage.setItem(DI_KEY, info.name); } catch {}
+      }
     } catch (e) {
       toast(e.message, true);
     }
@@ -504,9 +508,14 @@ function stagesPayload(stages = state.chain) {
 
 // ------------------------------------------------------------ preview
 
+const DI_KEY = "chaincap.di";
+
 function renderDiSelect() {
   const sel = $("#di-select");
-  const cur = sel.value;
+  // A escolha do usuário fica salva (o listener de change grava); se o arquivo
+  // ainda existir, ela vale. Senão, mantém o que está selecionado.
+  let cur = sel.value;
+  try { const saved = localStorage.getItem(DI_KEY); if (saved !== null) cur = saved; } catch {}
   sel.innerHTML = "";
   for (const f of state.files.di) {
     const o = document.createElement("option");
@@ -553,6 +562,9 @@ async function preview(stages, label, btn) {
 }
 
 function setupPreview() {
+  $("#di-select").addEventListener("change", (e) => {
+    try { localStorage.setItem(DI_KEY, e.target.value); } catch {}
+  });
   $("#play-chain").onclick = (e) => preview(state.chain, "a cadeia", e.currentTarget);
   $("#play-di").onclick = async () => {
     const note = $("#listen-note");
