@@ -459,7 +459,51 @@ function renderChain() {
     ? `${enabled} de ${state.chain.length} estágios ligados. O sinal passa da esquerda para a direita; arraste os pedais para reordenar.`
     : "Monte a cadeia na ordem do sinal: drive, amp, caixa.";
   $("#play-chain").disabled = !enabled;
+  renderCabAlert();
   renderTrainNote();
+}
+
+// Captura só de amp no fim da cadeia, sem IR depois: o som fica áspero.
+function renderCabAlert() {
+  const box = $("#board-alert");
+  if (!box || !state.status) return;
+  const on = state.chain.filter((s) => s.enabled);
+  let lastAmp = -1;
+  on.forEach((st, i) => {
+    const info = !st.job && st.type === "nam" ? fileInfo("nam", st.file) : null;
+    if (info && (state.status.amp_only_gear || []).includes(info.gear_type)) lastAmp = i;
+  });
+  const hasIrAfter = lastAmp >= 0 && on.slice(lastAmp + 1).some((s) => s.type === "ir");
+  if (lastAmp < 0 || hasIrAfter) { box.hidden = true; box.innerHTML = ""; return; }
+  const ampInfo = fileInfo("nam", on[lastAmp].file);
+  const name = (ampInfo && ampInfo.title) || stem(on[lastAmp].file);
+  box.hidden = false;
+  box.innerHTML = "";
+  const p = document.createElement("p");
+  p.textContent = `“${name}” é uma captura só do amplificador. Sem uma caixa (IR) depois dela, o som fica áspero e com zumbido nos agudos.`;
+  box.append(p);
+  const cab = state.status.builtin_cab;
+  if (cab && fileInfo("ir", cab)) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "secondary";
+    b.textContent = "Adicionar caixa genérica";
+    b.onclick = () => {
+      const at = state.chain.indexOf(on[lastAmp]) + 1;
+      addStage("ir", cab);
+      const added = state.chain.pop();
+      state.chain.splice(at, 0, added);
+      saveChain();
+      renderChain();
+      toast("Caixa genérica adicionada depois do amp");
+    };
+    box.append(b);
+  } else {
+    const hint = document.createElement("span");
+    hint.className = "note";
+    hint.textContent = "Envie um IR de caixa na aba IRs.";
+    box.append(hint);
+  }
 }
 
 function moveStage(from, to, focusSel) {
@@ -527,7 +571,9 @@ function renderDiSelect() {
   o.value = "";
   o.textContent = state.status && state.status.v3.valid ? "Trecho do sinal de treino" : "Trecho do sinal de treino (baixe primeiro)";
   sel.append(o);
+  const builtin = state.status && state.status.builtin_di;
   if ([...sel.options].some((x) => x.value === cur)) sel.value = cur;
+  else if (builtin && [...sel.options].some((x) => x.value === builtin)) sel.value = builtin;
 }
 
 function playBlob(blob) {

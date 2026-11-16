@@ -34,4 +34,9 @@ docs/     # spec e decisões
 
 ## Licença
 
-[MIT](LICENSE). As capturas `.nam` e IRs que você usa continuam sob a licença de quem as criou: o modelo gerado é um derivado delas.
+[MIT](LICENSE).
+
+- O riff de guitarra de exemplo (`poc/app/assets/demo_di.wav`) é uma composição deste projeto, montada com notas gravadas do banco [Electric Guitar FSBS (direct)](https://freepats.zenvoid.org/ElectricGuitar/clean-electric-guitar.html) do FreePats, em domínio público (CC0 1.0). Para regerar, use `poc/packaging/make_demo_di.py`.
+- O IR "Caixa 4x12 genérica" é gerado pelo próprio app a partir de uma curva de resposta (`poc/chaincap/cab_ir.py`).
+
+As capturas `.nam` e IRs que você usa continuam sob a licença de quem as criou: o modelo gerado é um derivado delas.

@@ -63,12 +63,50 @@ V3_DOWNLOAD = (
 KINDS = ("nam", "ir", "di")
 MAX_UPLOAD = 64 * 1024 * 1024
 PREVIEW_MAX_S = 30.0
-# Sem DI enviado, o preview usa este trecho do sinal de treino.
-V3_PREVIEW_START_S = 60.0
+# Sem DI enviado, o preview usa este trecho do sinal de treino: é a janela de
+# 15 s com mais guitarra tocada de verdade (ataques + notas afinadas) no v3.
+V3_PREVIEW_START_S = 37.0
+# IR de caixa gerado pelo app (ver chaincap/cab_ir.py), livre para distribuir.
+BUILTIN_CAB = "Caixa 4x12 genérica.wav"
+# Riff de guitarra DI de exemplo (notas reais do FreePats, CC0; packaging/make_demo_di.py).
+BUILTIN_DI = "Guitarra limpa (exemplo).wav"
+DEMO_DI_SRC = Path(__file__).resolve().parent / "assets" / "demo_di.wav"
+# Tipos de captura sem caixa: precisam de IR depois para não soarem ásperos.
+AMP_ONLY_GEAR = ("amp", "pedal_amp", "preamp")
 
 for k in KINDS:
     (FILES / k).mkdir(parents=True, exist_ok=True)
 JOBS.mkdir(parents=True, exist_ok=True)
+
+
+def _seed_builtin_cab() -> None:
+    """Coloca a caixa genérica na biblioteca uma vez (se o usuário apagar, não volta)."""
+    marker = WS / ".builtin-cab-seeded"
+    if marker.exists():
+        return
+    from chaincap.cab_ir import write_cab_ir
+
+    dest = FILES / "ir" / BUILTIN_CAB
+    if not dest.exists():
+        write_cab_ir(dest)
+    marker.write_text("1")
+
+
+def _seed_builtin_di() -> None:
+    """Coloca o riff de exemplo na aba DIs uma vez (se o usuário apagar, não volta)."""
+    marker = WS / ".builtin-di-seeded"
+    if marker.exists() or not DEMO_DI_SRC.is_file():
+        return
+    dest = FILES / "di" / BUILTIN_DI
+    if not dest.exists():
+        # O WAV embutido é 24-bit PCM; regravamos em float32 (lido pelo scipy).
+        x, sr = read_wav_mono(DEMO_DI_SRC)
+        wavfile.write(str(dest), sr, x.astype(np.float32))
+    marker.write_text("1")
+
+
+_seed_builtin_cab()
+_seed_builtin_di()
 
 app = FastAPI(title="NAM Chain Capture")
 
@@ -349,6 +387,9 @@ def status():
         "gpu": _gpu_name(),
         "gpu_runtime": gpu_runtime.status(WS),
         "archs": list(ARCHITECTURES),
+        "builtin_cab": BUILTIN_CAB,
+        "builtin_di": BUILTIN_DI,
+        "amp_only_gear": list(AMP_ONLY_GEAR),
         "workspace": str(WS),
         "desktop": FROZEN or bool(os.environ.get("CHAINCAP_DESKTOP")),
     }

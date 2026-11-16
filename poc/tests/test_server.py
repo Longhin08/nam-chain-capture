@@ -48,8 +48,10 @@ def test_list_files_describes_each_kind():
     assert [f["name"] for f in d["nam"]] == ["drive.nam"]
     assert d["nam"][0]["architecture"] == "WaveNet"
     assert d["nam"][0]["input_level_dbu"] == 12.0
-    assert d["ir"][0]["seconds"] == pytest.approx(64 / 48000, abs=1e-3)
-    assert d["di"][0]["seconds"] == pytest.approx(3.0)
+    ir = {f["name"]: f for f in d["ir"]}
+    assert ir["cab.wav"]["seconds"] == pytest.approx(64 / 48000, abs=1e-3)
+    di = {f["name"]: f for f in d["di"]}
+    assert di["riff.wav"]["seconds"] == pytest.approx(3.0)
 
 
 def test_upload_rejects_wrong_extension_and_invalid_content():
@@ -166,3 +168,29 @@ def test_status_reports_gpu_runtime():
 
 def test_worker_command_uses_desktop_entrypoint():
     assert server.worker_base()[-1].endswith("desktop_main.py")
+
+
+def test_builtin_cab_is_seeded_once():
+    names = [f["name"] for f in client.get("/api/files").json()["ir"]]
+    assert server.BUILTIN_CAB in names
+    assert client.delete(f"/api/files/ir/{server.BUILTIN_CAB}").status_code == 200
+    server._seed_builtin_cab()  # próxima abertura do app
+    names = [f["name"] for f in client.get("/api/files").json()["ir"]]
+    assert server.BUILTIN_CAB not in names  # apagou, não volta
+
+
+def test_status_exposes_cab_hints():
+    s = client.get("/api/status").json()
+    assert s["builtin_cab"] == server.BUILTIN_CAB and "amp" in s["amp_only_gear"]
+
+
+def test_builtin_demo_di_is_seeded_and_previewable():
+    di = {f["name"]: f for f in client.get("/api/files").json()["di"]}
+    assert server.BUILTIN_DI in di
+    assert di[server.BUILTIN_DI]["sample_rate"] == 48000
+    assert di[server.BUILTIN_DI]["seconds"] > 15
+    r = client.post("/api/preview", json={
+        "di": server.BUILTIN_DI, "seconds": 3,
+        "stages": [{"type": "nam", "file": "drive.nam"}],
+    })
+    assert r.status_code == 200 and len(r.content) > 3 * 48000 * 2

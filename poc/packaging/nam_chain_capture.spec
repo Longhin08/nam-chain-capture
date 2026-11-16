@@ -25,7 +25,7 @@ hidden = (
     + collect_submodules("app")
     + ["webview"]
 )
-datas = [(str(POC / "app" / "static"), "app/static")]
+datas = [(str(POC / "app" / "static"), "app/static"), (str(POC / "app" / "assets"), "app/assets")]
 datas += collect_data_files("nam")
 datas += collect_data_files("lightning_fabric")
 datas += collect_data_files("pytorch_lightning")

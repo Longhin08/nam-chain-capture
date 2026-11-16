@@ -224,6 +224,15 @@ h2 { font-size: 17px; font-weight: 700; }
 }
 .footswitch:active { transform: translateY(2px); box-shadow: 0 1px 0 #3e434b; }
 
+.board-alert {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: -8px; padding: 10px 14px; border-radius: var(--radius-ui);
+  background: rgba(242, 196, 98, .12); border: 1px solid rgba(242, 196, 98, .45);
+  color: var(--ink); font-size: 14px;
+}
+.board-alert[hidden] { display: none; }
+.board-alert p { flex: 1; min-width: 220px; }
+
 /* ---------- panels ---------- */
 .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
 .panel {
