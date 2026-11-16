@@ -1,0 +1,233 @@
+"""Treino do modelo único a partir de (sinal padrão v3, saída da cadeia).
+
+Usa as peças do `nam.train` (datasets, LightningModule, splits do v3), mas com
+uma WaveNet clássica em vez do PackedWaveNet do treinador simplificado 0.13.
+"""
+
+from . import _compat  # noqa: F401
+
+import hashlib as _hashlib
+import json as _json
+import logging as _logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
+
+import pytorch_lightning as _pl
+import torch
+from torch.utils.data import DataLoader as _DataLoader
+
+from nam.data import Split as _Split
+from nam.data import apply_joint_dataset_hooks as _apply_joint_hooks
+from nam.data import get_joint_dataset_hooks as _get_joint_hooks
+from nam.data import init_dataset as _init_dataset
+from nam.train import core as _core
+from nam.train import full as _full
+from nam.train.lightning_module import LightningModule as _LightningModule
+from nam.util import filter_warnings as _filter_warnings
+
+from .archs import lightning_model_config
+from .nam_format import UnsupportedForLegacyExport, to_legacy_a1
+
+logger = _logging.getLogger(__name__)
+
+V3_MD5 = "36cd1af62985c2fac3e654333e36431e"
+V3_URL = (
+    "https://drive.google.com/file/d/1Pgf8PdE0rKB1TD4TRPKbpNo1ByR3IOm9/view"
+)
+
+# Faixas de ESR da spec (§9 passo 6).
+ESR_GREAT = 0.01
+ESR_FAIL = 0.05
+
+
+def md5(path: Union[str, Path]) -> str:
+    h = _hashlib.md5()
+    with open(path, "rb") as fp:
+        for chunk in iter(lambda: fp.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def check_v3_input(path: Union[str, Path]) -> None:
+    got = md5(path)
+    if got != V3_MD5:
+        raise ValueError(
+            f"{path} não é o v3_0_0.wav oficial (md5 {got}). Baixe em {V3_URL}"
+        )
+
+
+def esr_verdict(esr: float) -> str:
+    if esr < ESR_GREAT:
+        return "ótimo"
+    if esr <= ESR_FAIL:
+        return "ok"
+    return "ruim"
+
+
+@dataclass
+class TrainResult:
+    nam_path: Path
+    legacy_nam_path: Optional[Path]
+    esr: float
+    epochs_run: int
+    seconds: float
+
+
+class ProgressFile(_pl.Callback):
+    """Grava `{"epoch", "max_epochs", "val_loss", "best_val_loss"}` em JSON a cada validação."""
+
+    def __init__(self, path: Union[str, Path]):
+        self.path = Path(path)
+        self.best: Optional[float] = None
+
+    def _write(self, trainer, val: Optional[float]) -> None:
+        if val is not None:
+            self.best = val if self.best is None else min(self.best, val)
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(_json.dumps({
+            "epoch": int(trainer.current_epoch),
+            "max_epochs": int(trainer.max_epochs or 0),
+            "val_loss": val,
+            "best_val_loss": self.best,
+        }))
+        tmp.replace(self.path)
+
+    def on_train_start(self, trainer, pl_module):
+        self._write(trainer, None)
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        if trainer.sanity_checking:
+            return
+        v = trainer.callback_metrics.get("val_loss")
+        self._write(trainer, None if v is None else float(v))
+
+
+def _device_config() -> Dict[str, Any]:
+    if torch.cuda.is_available():
+        return {"accelerator": "gpu", "devices": 1}
+    if torch.backends.mps.is_available():
+        return {"accelerator": "mps", "devices": 1}
+    logger.warning("Sem GPU: o treino vai ser MUITO lento (use o Colab)")
+    return {"accelerator": "cpu"}
+
+
+def train_chain_model(
+    input_wav: Union[str, Path],
+    output_wav: Union[str, Path],
+    outdir: Union[str, Path],
+    arch: str = "standard",
+    epochs: int = 100,
+    batch_size: int = 16,
+    ny: int = _core._NY_DEFAULT,
+    seed: int = 0,
+    basename: str = "chain",
+    metadata: Optional[Dict[str, Any]] = None,
+    legacy_export: bool = True,
+    skip_input_check: bool = False,
+    trainer_kwargs: Optional[Dict[str, Any]] = None,
+    progress_path: Optional[Union[str, Path]] = None,
+) -> TrainResult:
+    """Treina e exporta `<basename>.nam` (e `<basename>.a1.nam` no formato 0.5.x)."""
+    from time import time
+
+    t0 = time()
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    if not skip_input_check:
+        check_v3_input(input_wav)
+    torch.manual_seed(seed)
+
+    # Splits oficiais do v3. Latência 0: a "reamp" é virtual e já alinhada.
+    data_config = _core._get_data_config(
+        input_version=_core._Version(3, 0, 0),
+        input_path=str(input_wav),
+        output_path=str(output_wav),
+        ny=ny,
+        latency=0,
+    )
+    model_config = lightning_model_config(arch)
+    learning_config = {
+        "train_dataloader": {
+            "batch_size": batch_size,
+            "shuffle": True,
+            "pin_memory": torch.cuda.is_available(),
+            "drop_last": True,
+            "num_workers": 0,
+        },
+        "val_dataloader": {},
+        "trainer": {"max_epochs": epochs, **_device_config(), **(trainer_kwargs or {})},
+    }
+    for name, cfg in (("data", data_config), ("model", model_config), ("learning", learning_config)):
+        (outdir / f"config_{name}.json").write_text(_json.dumps(cfg, indent=2))
+
+    model = _LightningModule.init_from_config(model_config)
+    data_config["common"]["nx"] = model.net.receptive_field
+    ds_train = _init_dataset(data_config, _Split.TRAIN)
+    ds_val = _init_dataset(data_config, _Split.VALIDATION)
+    _apply_joint_hooks(
+        dataset_train=ds_train,
+        dataset_validation=ds_val,
+        hooks=_get_joint_hooks(data_config.get("joint", [])),
+    )
+    model.net.sample_rate = ds_train.sample_rate
+    _full._handshake_datasets(model, ds_train, ds_val)
+
+    trainer = _pl.Trainer(
+        callbacks=_full._create_callbacks(learning_config)
+        + ([ProgressFile(progress_path)] if progress_path else []),
+        default_root_dir=str(outdir),
+        enable_progress_bar=False,
+        # Sem TensorBoard: não usamos os logs e o app desktop não empacota o pacote.
+        logger=False,
+        **learning_config["trainer"],
+    )
+    with _filter_warnings("ignore", category=UserWarning):
+        trainer.fit(
+            model,
+            _DataLoader(ds_train, **learning_config["train_dataloader"]),
+            _DataLoader(ds_val, **learning_config["val_dataloader"]),
+        )
+
+    best = trainer.checkpoint_callback.best_model_path
+    if best:
+        model = _LightningModule.load_from_checkpoint(
+            best, **_LightningModule.parse_config(model_config)
+        )
+    model.cpu()
+    model.eval()
+    model.net.sample_rate = ds_train.sample_rate
+
+    with torch.no_grad():
+        pred = model(ds_val.x)
+    esr = _core._esr(pred.flatten(), ds_val.y)
+
+    md = dict(metadata or {})
+    md["chain_capture"] = {
+        **md.get("chain_capture", {}),
+        "arch": arch,
+        "esr": esr,
+        "epochs": trainer.current_epoch,
+    }
+    model.net.export(outdir, basename=basename, other_metadata=md)
+    nam_path = outdir / f"{basename}.nam"
+
+    legacy_path: Optional[Path] = None
+    if legacy_export:
+        try:
+            legacy = to_legacy_a1(_json.loads(nam_path.read_text()))
+            legacy_path = outdir / f"{basename}.a1.nam"
+            legacy_path.write_text(_json.dumps(legacy))
+        except UnsupportedForLegacyExport as e:  # pragma: no cover
+            logger.warning("Sem export legado: %s", e)
+
+    for ds in (ds_train, ds_val):
+        if hasattr(ds, "teardown"):
+            ds.teardown()
+    return TrainResult(
+        nam_path=nam_path,
+        legacy_nam_path=legacy_path,
+        esr=esr,
+        epochs_run=trainer.current_epoch,
+        seconds=time() - t0,
+    )

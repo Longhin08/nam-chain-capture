@@ -1,0 +1,13 @@
+# O pipeline usa partes internas do treinador (splits do v3, datasets): manter pinado.
+neural-amp-modeler==0.13.0
+scipy>=1.10
+numpy
+# torch e pytorch-lightning vêm como dependências do neural-amp-modeler.
+# Em máquina sem GPU, instale antes o torch CPU:
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch
+pytest
+# Interface local (app/)
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+httpx  # TestClient nos testes
