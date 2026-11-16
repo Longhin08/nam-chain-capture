@@ -23,6 +23,17 @@ const GEAR_FORM = {
   amp_pedal_cab: ["combo", "Pedal + amp + caixa"],
 };
 
+// Cor de esmalte de cada pedal: fixa por nome, para reconhecer de relance.
+const ENAMELS = [
+  ["#e3b23c", false], ["#c8392b", true], ["#3f8f5a", true], ["#3b6fb6", true], ["#e07a2f", false],
+  ["#7a4fa3", true], ["#2f8f8a", true], ["#e9dfc7", false], ["#2b2c30", true], ["#b8bcc2", false],
+];
+function enamelFor(name) {
+  let h = 0;
+  for (const ch of name || "") h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return ENAMELS[h % ENAMELS.length];
+}
+
 function stageForm(st) {
   if (st.job) return ["combo", "Modelo treinado"];
   if (st.type === "ir") return ["cab", "Gabinete (IR)"];
@@ -510,6 +521,11 @@ function makePedal(st, arr, i) {
   const info = st.job ? null : fileInfo(st.type, st.file);
   const [form, formLabel] = stageForm(st);
   li.dataset.form = form;
+  if (form === "pedal") {
+    const [color, lightInk] = enamelFor(st.file || st.label || "");
+    li.style.setProperty("--enamel", color);
+    li.classList.toggle("light-ink", lightInk);
+  }
   $(".kind", li).textContent = formLabel;
   $(".pedal-name", li).textContent = st.label || (info && info.title) || stem(st.file || "");
   const meta = $(".pedal-meta", li);
