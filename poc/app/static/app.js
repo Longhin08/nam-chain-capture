@@ -25,13 +25,40 @@ const GEAR_FORM = {
 
 // Cor de esmalte de cada pedal: fixa por nome, para reconhecer de relance.
 const ENAMELS = [
-  ["#e3b23c", false], ["#c8392b", true], ["#3f8f5a", true], ["#3b6fb6", true], ["#e07a2f", false],
-  ["#7a4fa3", true], ["#2f8f8a", true], ["#e9dfc7", false], ["#2b2c30", true], ["#b8bcc2", false],
+  "#e3b23c", // mostarda
+  "#f2d03b", // amarelo
+  "#e07a2f", // laranja
+  "#d9572b", // laranja queimado
+  "#c8392b", // vermelho
+  "#8e1f2b", // vinho
+  "#e05a8a", // rosa
+  "#9c3d8a", // magenta
+  "#7a4fa3", // roxo
+  "#4b3f8f", // índigo
+  "#3b6fb6", // azul
+  "#2a9fd6", // azul-claro
+  "#1f4e79", // azul-marinho
+  "#2f8f8a", // petróleo
+  "#3fb8a0", // turquesa
+  "#3f8f5a", // verde
+  "#8bbf3f", // verde-limão
+  "#3d5a2e", // verde-oliva
+  "#8a5a3b", // marrom
+  "#c9a06a", // caramelo
+  "#e9dfc7", // creme
+  "#f4f1ea", // branco
+  "#b8bcc2", // prata
+  "#2b2c30", // preto
 ];
 function enamelFor(name) {
-  let h = 0;
-  for (const ch of name || "") h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return ENAMELS[h % ENAMELS.length];
+  let h = 2166136261;
+  for (const ch of name || "") h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  const color = ENAMELS[h % ENAMELS.length];
+  // texto claro em esmalte escuro (luminância relativa WCAG)
+  const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const [r, g, b] = [1, 3, 5].map((i) => lin(parseInt(color.slice(i, i + 2), 16)));
+  const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return [color, L < 0.18];
 }
 
 function stageForm(st) {
