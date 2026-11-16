@@ -63,6 +63,12 @@ cd poc && ../.venv/bin/python -m pytest -q
 
 As fixtures em `tests/fixtures/` foram geradas com `neural-amp-modeler==0.10.0` (formato legado + saídas de referência).
 
+## Medições
+
+| Data | Máquina | Cadeia | Arch | Render | Treino | ESR | Obs. |
+|---|---|---|---|---|---|---|---|
+| 2026-11-16 | CPU 8 núcleos, sem GPU | 2 NAM sintéticos (pesos aleatórios) + IR 50 ms → 20 ms | standard | 70 s | 123 s/época | — | Só valida o pipeline. A saída sintética era quase só DC, então o ESR não significa nada. |
+
 ## Pendente no Épico 0
 
 - [ ] Rodar com capturas reais no Colab (GPU) e registrar ESR, tempo e custo.
