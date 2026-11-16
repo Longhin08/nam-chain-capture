@@ -11,9 +11,11 @@ from app import gpu_runtime as G
 POC = Path(__file__).resolve().parents[1]
 
 INDEX_HTML = """<html><body>
-<a href="/whl/cu126/torch-2.9.0%2Bcu126-cp312-cp312-win_amd64.whl#sha256={a}">x</a>
-<a href="/whl/cu126/torch-{v}%2Bcu126-cp311-cp311-win_amd64.whl#sha256={b}">x</a>
-<a href="/whl/cu126/torch-{v}%2Bcu126-cp312-cp312-win_amd64.whl#sha256={c}">x</a>
+<a href="https://download-r2.pytorch.org/whl/cpu/torch-{v}%2Bcpu-cp312-cp312-win_amd64.whl#sha256={z}">x</a>
+<a href="https://download-r2.pytorch.org/whl/cu132/torch-{v}%2Bcu132-cp312-cp312-win_amd64.whl#sha256={a}">x</a>
+<a href="https://download-r2.pytorch.org/whl/cu134/torch-{v}%2Bcu134-cp312-cp312-win_amd64.whl#sha256={b}">x</a>
+<a href="https://download-r2.pytorch.org/whl/cu134/torch-{v}%2Bcu134-cp311-cp311-win_amd64.whl#sha256={c}">x</a>
+<a href="https://download-r2.pytorch.org/whl/cu128/torch-2.9.0%2Bcu128-cp312-cp312-win_amd64.whl#sha256={c}">x</a>
 </body></html>"""
 
 
@@ -31,29 +33,37 @@ class _Resp:
         return False
 
 
-def test_find_wheel_picks_exact_version_python_and_platform(monkeypatch):
+@pytest.fixture
+def index(monkeypatch):
     v = "2.15.0"
-    calls = []
-
-    def fake_open(url, timeout=0):
-        calls.append(url)
-        if "cu126" in url:
-            return _Resp(INDEX_HTML.format(v=v, a="a" * 64, b="b" * 64, c="c" * 64))
-        return _Resp("<html></html>")
-
-    monkeypatch.setattr(G.urllib.request, "urlopen", fake_open)
-    url, sha, tag = G.find_wheel(v, "cp312", "win_amd64")
-    assert tag == "cu126"
-    assert sha == "c" * 64
-    assert url == f"https://download.pytorch.org/whl/cu126/torch-{v}%2Bcu126-cp312-cp312-win_amd64.whl"
-    # procurou dos tags mais novos para os mais velhos até achar
-    assert calls[0].endswith("/cu130/torch/")
+    html = INDEX_HTML.format(v=v, z="0" * 64, a="a" * 64, b="b" * 64, c="c" * 64)
+    monkeypatch.setattr(G.urllib.request, "urlopen", lambda url, timeout=0: _Resp(html))
+    return v
 
 
-def test_find_wheel_raises_when_missing(monkeypatch):
-    monkeypatch.setattr(G.urllib.request, "urlopen", lambda url, timeout=0: _Resp("<html></html>"))
+def test_find_wheel_picks_newest_cuda_the_driver_supports(index):
+    url, sha, tag = G.find_wheel(index, "cp312", "win_amd64", max_cuda=(13, 2))
+    assert tag == "cu132" and sha == "a" * 64
+    assert url.endswith("/cu132/torch-2.15.0%2Bcu132-cp312-cp312-win_amd64.whl")
+    # driver mais novo: pega a variante mais nova
+    assert G.find_wheel(index, "cp312", "win_amd64", max_cuda=(13, 4))[2] == "cu134"
+    assert G.find_wheel(index, "cp312", "win_amd64")[2] == "cu134"  # driver desconhecido
+
+
+def test_find_wheel_explains_old_driver(index):
+    with pytest.raises(G.DriverTooOld, match="CUDA 13.2"):
+        G.find_wheel(index, "cp312", "win_amd64", max_cuda=(12, 8))
+
+
+def test_find_wheel_raises_when_version_missing(index):
     with pytest.raises(LookupError):
         G.find_wheel("9.9.9", "cp312", "win_amd64")
+
+
+def test_cuda_tag_version():
+    assert G.cuda_tag_version("cu132") == (13, 2)
+    assert G.cuda_tag_version("cu118") == (11, 8)
+    assert G.cuda_tag_version("cu92") == (9, 2)
 
 
 def test_marker_ignored_when_torch_version_changes(tmp_path):

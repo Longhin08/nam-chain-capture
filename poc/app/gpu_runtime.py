@@ -30,9 +30,9 @@ import zipfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-INDEX = "https://download.pytorch.org/whl/{tag}/torch/"
-# Do mais novo para o mais velho; usamos o primeiro que tiver a versão exata.
-CUDA_TAGS = ("cu130", "cu129", "cu128", "cu126", "cu124", "cu121", "cu118")
+# Índice com todas as variantes do torch (cpu, cuXXX, rocm, xpu...). Não usamos
+# lista fixa de versões de CUDA: o PyTorch troca de CUDA a cada versão.
+INDEX = "https://download.pytorch.org/whl/torch/"
 _TOP_LEVEL = ("torch", "torchgen", "functorch")
 
 _lock = threading.Lock()
@@ -58,6 +58,39 @@ def _platform_tag() -> Optional[str]:
     if sys.platform == "win32" and platform.machine().lower() in ("amd64", "x86_64"):
         return "win_amd64"
     return None  # Linux precisa dos pacotes nvidia-* separados; macOS usa MPS.
+
+
+class DriverTooOld(RuntimeError):
+    pass
+
+
+def _nvidia_smi() -> Optional[str]:
+    exe = shutil.which("nvidia-smi") or os.path.join(
+        os.environ.get("SystemRoot", r"C:\Windows"), "System32", "nvidia-smi.exe"
+    )
+    return exe if os.path.exists(exe) else None
+
+
+def driver_cuda_version() -> Optional[Tuple[int, int]]:
+    """Maior versão de CUDA que o driver instalado suporta (cabeçalho do nvidia-smi)."""
+    exe = _nvidia_smi()
+    if not exe:
+        return None
+    try:
+        out = subprocess.run(
+            [exe], capture_output=True, text=True, timeout=20,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        ).stdout
+    except Exception:
+        return None
+    m = re.search(r"CUDA Version:\s*(\d+)\.(\d+)", out)
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def cuda_tag_version(tag: str) -> Tuple[int, int]:
+    """'cu132' -> (13, 2); 'cu118' -> (11, 8); 'cu92' -> (9, 2)."""
+    d = tag[2:]
+    return int(d[:-1]), int(d[-1])
 
 
 def nvidia_gpu_detected() -> bool:
@@ -117,28 +150,45 @@ class _Links(html.parser.HTMLParser):
                 self.hrefs.append(href)
 
 
-def find_wheel(torch_version: str, py_tag: str, plat: str) -> Tuple[str, str, str]:
-    """Retorna (url, sha256, cuda_tag) do wheel CUDA para esta versão exata."""
-    for tag in CUDA_TAGS:
-        index = INDEX.format(tag=tag)
-        try:
-            with urllib.request.urlopen(index, timeout=30) as r:
-                page = r.read().decode("utf-8", "replace")
-        except Exception:
-            continue
-        p = _Links()
-        p.feed(page)
-        want = f"torch-{torch_version}+{tag}-{py_tag}-{py_tag}-{plat}.whl"
-        for href in p.hrefs:
-            url, _, frag = href.partition("#")
-            if urllib.parse.unquote(url.rsplit("/", 1)[-1]) == want:
-                m = re.match(r"sha256=([0-9a-f]{64})", frag)
-                if not m:
-                    continue
-                return urllib.parse.urljoin(index, url), m.group(1), tag
-    raise LookupError(
-        f"Nenhum PyTorch CUDA {torch_version} para {py_tag}/{plat} no índice oficial"
+def find_wheel(
+    torch_version: str, py_tag: str, plat: str, max_cuda: Optional[Tuple[int, int]] = None
+) -> Tuple[str, str, str]:
+    """(url, sha256, cuda_tag) do wheel CUDA desta versão exata do torch.
+
+    Entre as variantes publicadas, escolhe a de CUDA mais novo que o driver
+    suporta (`max_cuda`, lido do nvidia-smi). Sem `max_cuda`, a mais nova.
+    """
+    with urllib.request.urlopen(INDEX, timeout=60) as r:
+        page = r.read().decode("utf-8", "replace")
+    p = _Links()
+    p.feed(page)
+    pat = re.compile(
+        rf"torch-{re.escape(torch_version)}\+(cu\d+)-{py_tag}-{py_tag}-{re.escape(plat)}\.whl"
     )
+    found = {}
+    for href in p.hrefs:
+        url, _, frag = href.partition("#")
+        m = pat.fullmatch(urllib.parse.unquote(url.rsplit("/", 1)[-1]))
+        sha = re.match(r"sha256=([0-9a-f]{64})", frag)
+        if m and sha:
+            found[m.group(1)] = (urllib.parse.urljoin(INDEX, url), sha.group(1))
+    if not found:
+        raise LookupError(
+            f"Nenhum PyTorch CUDA {torch_version} para {py_tag}/{plat} no índice oficial"
+        )
+    tags = sorted(found, key=cuda_tag_version)
+    ok = [t for t in tags if max_cuda is None or cuda_tag_version(t) <= max_cuda]
+    if not ok:
+        need = ".".join(map(str, cuda_tag_version(tags[0])))
+        have = ".".join(map(str, max_cuda))
+        raise DriverTooOld(
+            f"O driver da sua NVIDIA suporta até CUDA {have}, e este PyTorch precisa de "
+            f"CUDA {need} ou mais novo. Atualize o driver da NVIDIA (site da NVIDIA ou "
+            "GeForce Experience / NVIDIA App) e tente de novo."
+        )
+    tag = ok[-1]
+    url, sha = found[tag]
+    return url, sha, tag
 
 
 # ------------------------------------------------------------- instalação
@@ -174,10 +224,23 @@ def _extract(wheel: Path, target: Path) -> None:
                 z.extract(info, target)
 
 
+def _log(workspace: Path, msg: str) -> None:
+    """Log da instalação em <dados>/gpu-runtime/install.log (para diagnóstico)."""
+    try:
+        from datetime import datetime
+
+        _root(workspace).mkdir(parents=True, exist_ok=True)
+        with open(_root(workspace) / "install.log", "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}\n")
+    except OSError:
+        pass
+
+
 def gpu_check(worker_cmd: List[str], runtime_path: Path, cwd: Path) -> dict:
     env = dict(os.environ, CHAINCAP_GPU_RUNTIME=str(runtime_path))
     out = subprocess.run(
-        worker_cmd + ["--gpu-check"], capture_output=True, text=True, timeout=300, env=env, cwd=cwd,
+        # 20 min: na 1ª vez o antivírus analisa ~4 GB de DLLs novas.
+        worker_cmd + ["--gpu-check"], capture_output=True, text=True, timeout=1200, env=env, cwd=cwd,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     )
     lines = [l for l in out.stdout.splitlines() if l.startswith("{")]
@@ -195,7 +258,8 @@ def _install(workspace: Path, worker_cmd: List[str]) -> None:
         tv = bundled_torch_version()
         py = f"cp{sys.version_info.major}{sys.version_info.minor}"
         _state.update(phase="procurando", error=None)
-        url, sha, tag = find_wheel(tv, py, plat)
+        url, sha, tag = find_wheel(tv, py, plat, max_cuda=driver_cuda_version())
+        _log(workspace, f"torch {tv} -> {tag}: {url}")
         root.mkdir(parents=True, exist_ok=True)
         wheel = root / urllib.parse.unquote(url.rsplit("/", 1)[-1])
         _state["phase"] = "baixando"
@@ -222,6 +286,9 @@ def _install(workspace: Path, worker_cmd: List[str]) -> None:
                 shutil.rmtree(old, ignore_errors=True)
     except Exception as e:
         _state["error"] = str(e)
+        import traceback
+
+        _log(workspace, traceback.format_exc())
     finally:
         _state.update(installing=False, phase=None)
 
