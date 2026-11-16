@@ -207,3 +207,17 @@ def test_preview_resamples_44k_di():
     assert sr == 48000 and len(y) == 48000
     r = client.get("/api/di-clip?di=loop44.wav&seconds=1", headers={})
     assert r.status_code == 200
+
+
+def test_all_builtin_dis_seeded_and_legacy_riff_removed(tmp_path, monkeypatch):
+    di_dir = server.FILES / "di"
+    (di_dir / server._LEGACY_DEMO_DI).write_bytes(b"x")  # instalação antiga
+    (server.WS / ".builtin-dis.json").unlink(missing_ok=True)
+    server._seed_builtin_di()
+    names = {f["name"] for f in client.get("/api/files").json()["di"]}
+    assert server._LEGACY_DEMO_DI not in names
+    expected = {p.name for p in server.DEMO_DI_DIR.glob("*.wav")}
+    assert len(expected) == 3 and expected <= names
+    for f in client.get("/api/files").json()["di"]:
+        if f["name"] in expected:
+            assert f["sample_rate"] == 48000 and f["seconds"] > 9

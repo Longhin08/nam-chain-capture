@@ -36,7 +36,7 @@ docs/     # spec e decisões
 
 [MIT](LICENSE).
 
-- O riff de guitarra de exemplo (`poc/app/assets/demo_di.wav`) é uma composição deste projeto, montada com notas gravadas do banco [Electric Guitar FSBS (direct)](https://freepats.zenvoid.org/ElectricGuitar/clean-electric-guitar.html) do FreePats, em domínio público (CC0 1.0). Para regerar, use `poc/packaging/make_demo_di.py`.
+- Os DIs de exemplo (`poc/app/assets/di/`) são gravações de guitarra elétrica direto na interface, em domínio público (CC0 1.0), do Freesound: [clean guitar loop](https://freesound.org/people/mil_dew/sounds/613906/) de mil_dew, [Clean Strumming & Arpeggio](https://freesound.org/people/loudernoises/sounds/453384/) de loudernoises e um trecho de 30 s de [Guitar Jamming](https://freesound.org/s/182803/) de unfa. Foram convertidas para mono 48 kHz, com corte de silêncio e nível de DI (`poc/packaging/make_demo_dis.py`). O unfa pede que os sons dele não sejam usados para treinar modelos; no app, os DIs servem só para ouvir o preview e nunca entram no treino.
 - O IR "Caixa 4x12 genérica" é gerado pelo próprio app a partir de uma curva de resposta (`poc/chaincap/cab_ir.py`).
 
 As capturas `.nam` e IRs que você usa continuam sob a licença de quem as criou: o modelo gerado é um derivado delas.

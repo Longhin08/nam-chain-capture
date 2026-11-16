@@ -68,9 +68,11 @@ PREVIEW_MAX_S = 30.0
 V3_PREVIEW_START_S = 37.0
 # IR de caixa gerado pelo app (ver chaincap/cab_ir.py), livre para distribuir.
 BUILTIN_CAB = "Caixa 4x12 genérica.wav"
-# Riff de guitarra DI de exemplo (notas reais do FreePats, CC0; packaging/make_demo_di.py).
-BUILTIN_DI = "Guitarra limpa (exemplo).wav"
-DEMO_DI_SRC = Path(__file__).resolve().parent / "assets" / "demo_di.wav"
+# DIs de exemplo: gravações CC0 do Freesound (ver packaging/make_demo_dis.py).
+DEMO_DI_DIR = Path(__file__).resolve().parent / "assets" / "di"
+BUILTIN_DI = "Strat limpa - loop (mil_dew).wav"  # padrão do preview
+# Riff antigo montado com notas soltas: substituído pelas gravações reais.
+_LEGACY_DEMO_DI = "Guitarra limpa (exemplo).wav"
 # Tipos de captura sem caixa: precisam de IR depois para não soarem ásperos.
 AMP_ONLY_GEAR = ("amp", "pedal_amp", "preamp")
 
@@ -93,16 +95,25 @@ def _seed_builtin_cab() -> None:
 
 
 def _seed_builtin_di() -> None:
-    """Coloca o riff de exemplo na aba DIs uma vez (se o usuário apagar, não volta)."""
-    marker = WS / ".builtin-di-seeded"
-    if marker.exists() or not DEMO_DI_SRC.is_file():
-        return
-    dest = FILES / "di" / BUILTIN_DI
-    if not dest.exists():
-        # O WAV embutido é 24-bit PCM; regravamos em float32 (lido pelo scipy).
-        x, sr = read_wav_mono(DEMO_DI_SRC)
-        wavfile.write(str(dest), sr, x.astype(np.float32))
-    marker.write_text("1")
+    """Coloca os DIs de exemplo na aba DIs. Cada um entra uma vez só: se o
+    usuário apagar, não volta; DIs novos de versões futuras do app entram."""
+    seeded_file = WS / ".builtin-dis.json"
+    try:
+        seeded = set(json.loads(seeded_file.read_text()))
+    except (OSError, ValueError):
+        seeded = set()
+    if _LEGACY_DEMO_DI not in seeded:
+        (FILES / "di" / _LEGACY_DEMO_DI).unlink(missing_ok=True)
+        seeded.add(_LEGACY_DEMO_DI)
+    if DEMO_DI_DIR.is_dir():
+        for src in sorted(DEMO_DI_DIR.glob("*.wav")):
+            if src.name in seeded:
+                continue
+            dest = FILES / "di" / src.name
+            if not dest.exists():
+                shutil.copy2(src, dest)
+            seeded.add(src.name)
+    seeded_file.write_text(json.dumps(sorted(seeded), ensure_ascii=False))
 
 
 _seed_builtin_cab()
