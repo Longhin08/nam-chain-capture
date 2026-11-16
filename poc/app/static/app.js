@@ -9,6 +9,26 @@ const ARCH_INFO = {
   nano: "quando nada mais roda",
 };
 const KIND_LABEL = { nam: "Captura NAM", ir: "IR de caixa" };
+
+// Como desenhar cada estágio, a partir do gear_type gravado no .nam.
+//   pedal  -> pedal de chão     head -> cabeçote
+//   combo  -> amp + caixa       cab  -> gabinete (IR)
+const GEAR_FORM = {
+  pedal: ["pedal", "Pedal"],
+  amp: ["head", "Amplificador"],
+  preamp: ["head", "Pré-amplificador"],
+  pedal_amp: ["head", "Pedal + amp"],
+  studio: ["head", "Equipamento de estúdio"],
+  amp_cab: ["combo", "Amp + caixa"],
+  amp_pedal_cab: ["combo", "Pedal + amp + caixa"],
+};
+
+function stageForm(st) {
+  if (st.job) return ["combo", "Modelo treinado"];
+  if (st.type === "ir") return ["cab", "Gabinete (IR)"];
+  const info = fileInfo("nam", st.file);
+  return (info && GEAR_FORM[info.gear_type]) || ["pedal", "Captura NAM"];
+}
 const DROP_TEXT = {
   nam: "Solte arquivos .nam aqui ou clique para escolher",
   ir: "Solte IRs .wav aqui ou clique para escolher",
@@ -488,7 +508,9 @@ function makePedal(st, arr, i) {
   if (st.job) li.dataset.trained = "";
   li.classList.toggle("bypassed", !st.enabled);
   const info = st.job ? null : fileInfo(st.type, st.file);
-  $(".kind", li).textContent = st.job ? "Modelo treinado" : KIND_LABEL[st.type];
+  const [form, formLabel] = stageForm(st);
+  li.dataset.form = form;
+  $(".kind", li).textContent = formLabel;
   $(".pedal-name", li).textContent = st.label || (info && info.title) || stem(st.file || "");
   const meta = $(".pedal-meta", li);
   if (stageMissing(st)) meta.textContent = "Arquivo não está mais na biblioteca";
