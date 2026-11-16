@@ -110,7 +110,8 @@ jobs:
           foreach ($d in $env:CHAINCAP_SHORTCUT_DIRS.Split('|')) {
             $lnk = $shell.CreateShortcut((Join-Path $d "NAM Chain Capture.lnk"))
             Write-Host "$d -> $($lnk.TargetPath) $($lnk.Arguments) | ícone: $($lnk.IconLocation)"
-            if ($lnk.TargetPath -ne (Join-Path $root "python\pythonw.exe")) { throw "atalho não aponta para o pythonw.exe" }
+            # (o Windows pode mostrar a mesma pasta com nome curto 8.3 ou longo)
+            if (-not (Test-Path $lnk.TargetPath) -or $lnk.TargetPath -notlike "*\NAM Chain Capture\python\pythonw.exe") { throw "atalho não aponta para o pythonw.exe do pacote" }
             if (-not (Test-Path ($lnk.IconLocation -replace ',\d+$',''))) { throw "ícone não encontrado" }
           }
           $edge = & $py -c "import desktop_main as d; print(d.find_edge() or '')"
