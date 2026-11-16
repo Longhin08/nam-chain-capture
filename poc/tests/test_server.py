@@ -194,3 +194,16 @@ def test_builtin_demo_di_is_seeded_and_previewable():
         "stages": [{"type": "nam", "file": "drive.nam"}],
     })
     assert r.status_code == 200 and len(r.content) > 3 * 48000 * 2
+
+
+def test_preview_resamples_44k_di():
+    x = (np.sin(2 * np.pi * 220 * np.arange(44100 * 2) / 44100) * 0.3).astype(np.float32)
+    assert upload("di", "loop44.wav", wav_bytes(x, sr=44100)).status_code == 200
+    r = client.post("/api/preview", json={
+        "di": "loop44.wav", "seconds": 1, "stages": [{"type": "ir", "file": "cab.wav"}],
+    })
+    assert r.status_code == 200, r.text
+    sr, y = wavfile.read(io.BytesIO(r.content))
+    assert sr == 48000 and len(y) == 48000
+    r = client.get("/api/di-clip?di=loop44.wav&seconds=1", headers={})
+    assert r.status_code == 200

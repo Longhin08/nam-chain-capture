@@ -283,7 +283,11 @@ def _di_clip(di: Optional[str], seconds: float) -> np.ndarray:
     if di:
         x, sr = read_wav_mono(_file_path("di", di))
         if sr != SAMPLE_RATE:
-            raise HTTPException(400, f"DI precisa ser {SAMPLE_RATE} Hz (é {sr})")
+            # Loops da internet costumam vir em 44,1 kHz: reamostra para 48 kHz.
+            from scipy.signal import resample_poly
+
+            g = int(np.gcd(sr, SAMPLE_RATE))
+            x = resample_poly(x[: int(seconds * sr) + sr], SAMPLE_RATE // g, sr // g).astype(np.float32)
         return x[:n]
     if not V3.is_file():
         raise HTTPException(409, "Envie um DI ou baixe o sinal de treino para ouvir o preview")
