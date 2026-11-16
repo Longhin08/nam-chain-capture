@@ -451,7 +451,8 @@ function makeKnob(label, value, onChange, { min = -24, max = 24 } = {}) {
   const set = (nv, commit = true) => {
     v = Math.max(min, Math.min(max, Math.round(nv * 2) / 2));
     // 0 dB sempre no meio-dia; cada lado usa a sua faixa.
-    const ang = v >= 0 ? (v / max) * 135 : (v / -min) * -135;
+    // negativo gira para a esquerda (anti-horário), positivo para a direita
+    const ang = v >= 0 ? (v / max) * 135 : (v / -min) * 135;
     knob.style.setProperty("--angle", `${ang}deg`);
     knob.setAttribute("aria-valuenow", String(v));
     knob.setAttribute("aria-valuetext", fmtDb(v));
