@@ -296,3 +296,14 @@ def test_blocked_worker_marks_job_failed_and_queue_survives(monkeypatch):
     assert "sem permissão" in client.get(f"/api/jobs/{jid2}").json()["error"]
     for j in (jid, jid2):
         client.delete(f"/api/jobs/{j}")
+
+
+def test_windows_only_helpers_are_noops_elsewhere(tmp_path):
+    import sys as _sys
+
+    import desktop_main as D
+
+    if _sys.platform == "win32":
+        pytest.skip("testado no CI do Windows")
+    assert D.create_shortcuts(tmp_path) == []
+    assert D.open_app_window("http://127.0.0.1:1/", tmp_path) is False

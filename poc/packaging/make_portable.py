@@ -39,18 +39,24 @@ PACKAGES = [
 ]
 
 LAUNCHER = r"""@echo off
-rem Abre o NAM Chain Capture no navegador padrao, com o Python oficial desta pasta.
-start "" "%~dp0python\pythonw.exe" "%~dp0app\desktop_main.py" --browser
+rem Abre o NAM Chain Capture (janela do Edge em modo aplicativo) com o Python
+rem oficial desta pasta. Na primeira vez, cria atalhos no Menu Iniciar e na
+rem Area de trabalho.
+start "" "%~dp0python\pythonw.exe" "%~dp0app\desktop_main.py" --browser --portable
 """
 
 README = """NAM Chain Capture {version} - versão portátil para Windows
 ============================================================
 
 1. Extraia esta pasta inteira para um lugar fixo (por exemplo, Documentos).
+   Se mudar a pasta de lugar depois, abra pelo .cmd de novo para refazer os atalhos.
 2. Dê dois cliques em "Abrir NAM Chain Capture.cmd".
-   O app abre no seu navegador padrão. A primeira abertura demora um pouco.
-3. Para fechar, feche a aba do navegador. O app se encerra sozinho em
-   cerca de 1 minuto (se houver um treino rodando, ele espera o treino).
+   - O app abre na própria janela (Microsoft Edge em modo aplicativo, sem abas
+     nem barra de endereço). A primeira abertura demora um pouco.
+   - Na primeira vez, ele cria os atalhos "NAM Chain Capture" no Menu Iniciar
+     e na Área de trabalho. Depois disso, abra por eles.
+3. Para fechar, feche a janela. O app se encerra sozinho em cerca de 1 minuto
+   (se houver um treino rodando, ele espera o treino terminar).
 
 Seus arquivos (capturas, IRs, treinos) ficam em %APPDATA%\\NAM Chain Capture.
 
@@ -60,7 +66,7 @@ Inteligente de Aplicativos do Windows 11 enquanto o app não tem assinatura
 digital própria.
 
 Se o atalho .cmd for bloqueado, crie um atalho manualmente:
-  Destino:  <esta pasta>\\python\\pythonw.exe "<esta pasta>\\app\\desktop_main.py" --browser
+  Destino:  <esta pasta>\\python\\pythonw.exe "<esta pasta>\\app\\desktop_main.py" --browser --portable
 """
 
 

@@ -1,7 +1,11 @@
 """Ponto de entrada do app desktop (e do executável do PyInstaller).
 
     NAM Chain Capture                  abre a janela do app
-    NAM Chain Capture --browser        abre no navegador padrão em vez da janela
+    NAM Chain Capture --browser        sem pywebview: no Windows abre uma janela do Edge
+                                       em modo aplicativo; nos outros, o navegador padrão
+    … --portable                       (versão portátil) cria atalhos no Menu Iniciar
+                                       e na Área de trabalho na primeira execução
+    … --make-shortcuts                 só cria os atalhos e sai
     NAM Chain Capture --worker run …   (interno) treino de um job
     NAM Chain Capture --gpu-check      (interno) testa o PyTorch CUDA baixado
     NAM Chain Capture --serve [PORTA]  só o servidor, sem janela (testes)
@@ -83,6 +87,101 @@ class DesktopApi:
         return {"saved": dest}
 
 
+# ------------------------------------------------- Windows: janela e atalhos
+
+def find_edge():
+    """Caminho do msedge.exe (vem instalado no Windows 10/11)."""
+    for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles"), os.environ.get("LOCALAPPDATA")):
+        if base:
+            p = Path(base) / "Microsoft" / "Edge" / "Application" / "msedge.exe"
+            if p.is_file():
+                return p
+    return shutil.which("msedge")
+
+
+def open_app_window(url: str, ws: Path) -> bool:
+    """Abre a interface numa janela do Edge em modo aplicativo (sem abas nem barra
+    de endereço). O Edge é assinado pela Microsoft, então passa pelo Controle
+    Inteligente de Aplicativos. Retorna False se não der (aí usa o navegador)."""
+    import subprocess
+
+    edge = find_edge() if sys.platform == "win32" else None
+    if not edge:
+        return False
+    try:
+        subprocess.Popen(
+            [str(edge), f"--app={url}", f"--user-data-dir={ws / 'janela'}",
+             "--window-size=1440,920", "--no-first-run", "--no-default-browser-check"],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return True
+    except OSError:
+        return False
+
+
+def portable_root() -> Path:
+    # <raiz>/app/desktop_main.py  e  <raiz>/python/pythonw.exe
+    return Path(__file__).resolve().parent.parent
+
+
+_SHORTCUT_PS = r"""
+$ErrorActionPreference = 'Stop'
+$shell = New-Object -ComObject WScript.Shell
+foreach ($dir in $env:CC_DIRS.Split('|')) {
+  if (-not $dir) { continue }
+  New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  $lnk = $shell.CreateShortcut((Join-Path $dir ($env:CC_NAME + '.lnk')))
+  $lnk.TargetPath = $env:CC_TARGET
+  $lnk.Arguments = $env:CC_ARGS
+  $lnk.WorkingDirectory = $env:CC_WORKDIR
+  $lnk.IconLocation = $env:CC_ICON
+  $lnk.Description = 'Monte a cadeia de capturas NAM e treine uma captura única'
+  $lnk.Save()
+}
+"""
+
+
+def create_shortcuts(ws: Path, force: bool = False) -> list:
+    """Atalhos no Menu Iniciar e na Área de trabalho, apontando para o pythonw.exe
+    oficial (nenhum .exe próprio). Só na versão portátil do Windows."""
+    import subprocess
+
+    if sys.platform != "win32":
+        return []
+    root = portable_root()
+    pythonw = root / "python" / "pythonw.exe"
+    if not pythonw.is_file():
+        return []
+    marker = ws / ".atalhos"
+    if not force and marker.is_file() and marker.read_text(encoding="utf-8") == str(root):
+        return []  # já criados para esta pasta
+    override = os.environ.get("CHAINCAP_SHORTCUT_DIRS")  # testes
+    if override:
+        dirs = override.split("|")
+    else:
+        appdata = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+        dirs = [
+            str(appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs"),
+            str(Path(os.environ.get("USERPROFILE", Path.home())) / "Desktop"),
+        ]
+    env = dict(
+        os.environ,
+        CC_DIRS="|".join(dirs),
+        CC_NAME=APP_NAME,
+        CC_TARGET=str(pythonw),
+        CC_ARGS=f'"{root / "app" / "desktop_main.py"}" --browser --portable',
+        CC_WORKDIR=str(root),
+        CC_ICON=str(root / "app" / "app" / "assets" / "icon.ico"),
+    )
+    subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", _SHORTCUT_PS],
+        env=env, check=True, capture_output=True, timeout=60,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    marker.write_text(str(root), encoding="utf-8")
+    return [str(Path(d) / f"{APP_NAME}.lnk") for d in dirs]
+
+
 # No modo navegador, a página manda /api/ping a cada 10 s. Sem ping por
 # AUTOSTOP_S (ou sem nenhum ping depois de GRACE_S), o app se encerra, a não
 # ser que haja treino rodando ou na fila.
@@ -135,7 +234,8 @@ def run_app(ws: Path, browser: bool) -> None:
 
         if str(e) != "--browser":
             print(f"Janela nativa indisponível ({e}); abrindo no navegador.", file=sys.stderr)
-        webbrowser.open(url)
+        if not open_app_window(url, ws):
+            webbrowser.open(url)
         print(f"{APP_NAME} rodando em {url}\nFeche a aba do navegador (ou Ctrl+C) para sair.")
         started = time.time()
         try:
@@ -237,6 +337,15 @@ def main() -> int:
         os.environ.setdefault("CHAINCAP_TOKEN", secrets.token_urlsafe(24))
         serve(int(args[1]) if len(args) > 1 else _free_port())
         return 0
+    if "--make-shortcuts" in args:
+        for p in create_shortcuts(ws, force=True):
+            print(f"atalho: {p}")
+        return 0
+    if "--portable" in args:
+        try:
+            create_shortcuts(ws)
+        except Exception as e:  # atalho é conveniência: nunca impede o app de abrir
+            print(f"Não consegui criar os atalhos: {e}", file=sys.stderr)
     run_app(ws, browser="--browser" in args)
     return 0
 

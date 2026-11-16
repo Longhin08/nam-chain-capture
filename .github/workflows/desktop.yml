@@ -96,6 +96,27 @@ jobs:
           cat selftest-portable.log
           grep -q "SELF-TEST OK" selftest-portable.log
 
+      - name: Portable shortcuts and app window (Edge)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $root = $env:PORTABLE_ROOT
+          $py = Join-Path $root "python\python.exe"
+          $env:CHAINCAP_WORKSPACE = Join-Path $env:RUNNER_TEMP "ws-shortcuts"
+          $env:CHAINCAP_SHORTCUT_DIRS = (Join-Path $env:RUNNER_TEMP "menu") + "|" + (Join-Path $env:RUNNER_TEMP "desktop")
+          & $py (Join-Path $root "app\desktop_main.py") --make-shortcuts
+          if ($LASTEXITCODE -ne 0) { throw "falhou ao criar atalhos" }
+          $shell = New-Object -ComObject WScript.Shell
+          foreach ($d in $env:CHAINCAP_SHORTCUT_DIRS.Split('|')) {
+            $lnk = $shell.CreateShortcut((Join-Path $d "NAM Chain Capture.lnk"))
+            Write-Host "$d -> $($lnk.TargetPath) $($lnk.Arguments) | ícone: $($lnk.IconLocation)"
+            if ($lnk.TargetPath -ne (Join-Path $root "python\pythonw.exe")) { throw "atalho não aponta para o pythonw.exe" }
+            if (-not (Test-Path ($lnk.IconLocation -replace ',\d+$',''))) { throw "ícone não encontrado" }
+          }
+          $edge = & $py -c "import desktop_main as d; print(d.find_edge() or '')"
+          Write-Host "Edge: $edge"
+          if (-not $edge) { throw "msedge.exe não encontrado" }
+
       - name: Package (Windows installer)
         if: runner.os == 'Windows'
         run: |
