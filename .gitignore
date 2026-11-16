@@ -12,6 +12,8 @@ venv/
 *.nam
 !**/tests/fixtures/**/*.wav
 !**/tests/fixtures/**/*.nam
+# Áudios de exemplo distribuídos com o app (licença livre, ver README)
+!poc/app/assets/**/*.wav
 outputs/
 lightning_logs/
 
