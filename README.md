@@ -31,3 +31,7 @@ api/      # upload, jobs, perfis de dispositivo (Épico 2)
 web/      # frontend React (épicos posteriores)
 docs/     # spec e decisões
 ```
+
+## Licença
+
+[MIT](LICENSE). As capturas `.nam` e IRs que você usa continuam sob a licença de quem as criou: o modelo gerado é um derivado delas.
