@@ -243,9 +243,14 @@ function renderFiles() {
   }
 }
 
-async function uploadFiles(fileList) {
+async function uploadFiles(fileList, { addToChainAt = null } = {}) {
+  const added = [];
   for (const file of fileList) {
     const ext = file.name.toLowerCase().split(".").pop();
+    if (ext !== "nam" && ext !== "wav") {
+      toast(`${file.name}: envie capturas .nam ou IRs .wav`, true);
+      continue;
+    }
     // .nam vai para capturas; .wav é IR de caixa
     const kind = ext === "nam" ? "nam" : "ir";
     const fd = new FormData();
@@ -255,11 +260,22 @@ async function uploadFiles(fileList) {
       const r = await api("/api/files", { method: "POST", body: fd });
       const info = await r.json();
       toast(`${info.name} enviado`);
+      added.push(info);
     } catch (e) {
       toast(e.message, true);
     }
   }
   await refreshFiles();
+  if (addToChainAt != null && added.length) {
+    let at = Math.min(addToChainAt, state.chain.length);
+    for (const info of added) {
+      addStage(info.kind, info.name);
+      state.chain.splice(at++, 0, state.chain.pop());
+    }
+    saveChain();
+    renderChain();
+  }
+  return added;
 }
 
 function setupLibrary() {
@@ -274,10 +290,28 @@ function setupLibrary() {
   $("#file-input").onchange = (e) => { uploadFiles(e.target.files); e.target.value = ""; };
   drop.addEventListener("dragover", (e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); drop.classList.add("over"); } });
   drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-  drop.addEventListener("drop", (e) => {
+  drop.addEventListener("drop", () => drop.classList.remove("over"));
+
+  // Arquivo solto em QUALQUER lugar da janela: nunca deixar a janela abrir o
+  // arquivo como página. Na cadeia, ele já entra como estágio.
+  const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes("Files");
+  window.addEventListener("dragover", (e) => {
+    if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }
+  });
+  window.addEventListener("drop", (e) => {
+    if (!hasFiles(e)) return;
     e.preventDefault();
-    drop.classList.remove("over");
-    if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+    clearDropMarks();
+    const pedal = e.target.closest && e.target.closest(".pedal");
+    let at = null;
+    if (pedal) {
+      const i = state.chain.findIndex((s) => s.uid === pedal.dataset.uid);
+      const r = pedal.getBoundingClientRect();
+      at = i + (e.clientX > r.left + r.width / 2 ? 1 : 0);
+    } else if (e.target.closest && e.target.closest("#board")) {
+      at = state.chain.length;
+    }
+    uploadFiles(e.dataTransfer.files, { addToChainAt: at });
   });
 }
 
@@ -425,6 +459,7 @@ function renderChain() {
       li.classList.add(after ? "drop-after" : "drop-before");
     });
     li.addEventListener("drop", (e) => {
+      if (e.dataTransfer.files && e.dataTransfer.files.length) return; // tratado na janela
       e.preventDefault();
       e.stopPropagation();
       const after = li.classList.contains("drop-after");
