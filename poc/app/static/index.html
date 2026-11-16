@@ -21,6 +21,7 @@
     <div class="tabs" role="tablist">
       <button role="tab" data-kind="nam" aria-selected="true">Capturas</button>
       <button role="tab" data-kind="ir" aria-selected="false">IRs</button>
+      <button role="tab" data-kind="di" aria-selected="false">DIs</button>
     </div>
     <label class="drop" id="drop">
       <input type="file" id="file-input" multiple hidden>
@@ -33,6 +34,7 @@
     <div class="board-head">
       <h2>Cadeia</h2>
       <p class="hint" id="board-hint">O sinal entra pela esquerda e passa pelos estágios na ordem. Arraste para reordenar.</p>
+      <button class="ghost" id="split-chain" type="button">Dividir sinal (A/B)</button>
       <button class="ghost" id="clear-chain" type="button">Limpar cadeia</button>
     </div>
     <div class="board" id="board">
@@ -41,6 +43,7 @@
       <div class="jack out" aria-hidden="true"><span>Saída</span></div>
     </div>
     <div class="board-alert" id="board-alert" role="status" hidden></div>
+    <div class="undo-bar" id="undo-bar" role="status" hidden></div>
 
     <div class="panels">
       <section class="panel" aria-labelledby="listen-title">

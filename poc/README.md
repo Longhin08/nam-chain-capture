@@ -9,10 +9,11 @@ cd poc && ../.venv/bin/python -m uvicorn app.server:app --port 8765
 # abra http://127.0.0.1:8765
 ```
 
-  - Envie `.nam` e IRs pela barra lateral. Eles ficam em `poc/workspace/`.
+  - Envie `.nam`, IRs e DIs (gravações de guitarra crua para ouvir) pela barra lateral, ou solte o arquivo em qualquer lugar da janela. Eles ficam em `poc/workspace/`.
   - Monte a cadeia como uma pedaleira: arraste os pedais para reordenar (ou use ‹ ›). Os knobs de entrada e saída aceitam arrastar, roda do mouse e setas (Shift = passo de 3 dB); duplo clique zera.
   - O footswitch faz bypass. No IR, dá para ligar o corte em N ms e a normalização.
-  - **Ouvir cadeia** processa até 30 s do áudio de teste escolhido e toca no navegador, com o volume normalizado. As opções são três gravações de guitarra crua em CC0 que vêm com o app (ver README principal). O pico real aparece abaixo do player.
+  - **Dividir sinal (A/B):** cria duas cadeias paralelas, por exemplo dois amps, que tocam juntas e são somadas, como no dual amp do BIAS FX. A divisão começa no 1º amp da cadeia, e a cadeia B nasce como cópia da A. Cada cadeia tem um mixer com nível, **Ø fase** (para quando a soma fica magra) e mudo. Estágios antes da divisão são comuns às duas; os de depois são aplicados à soma. É uma divisão por cadeia, sem divisão dentro de divisão. A saída é mono, porque o `.nam` e as pedaleiras são mono.
+  - **Ouvir cadeia** processa até 30 s do áudio de teste escolhido e toca no navegador, com o volume normalizado. Vêm com o app três gravações de guitarra crua em CC0 (ver README principal), e dá para enviar DIs seus. O pico real aparece abaixo do player.
   - **Treinar captura** cria um job em fila (um por vez, em segundo plano), com progresso por época e ESR. Os arquivos da cadeia são copiados para o job, então dá para mexer na biblioteca depois.
   - Com o job pronto, dá para **ouvir o resultado**, compará-lo com a cadeia original, baixar o `.a1.nam` e usar o modelo treinado como estágio de uma nova cadeia.
   - Sem o `v3_0_0.wav`, o topo da página mostra um botão para baixá-lo.

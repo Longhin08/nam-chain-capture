@@ -25,7 +25,7 @@ import time
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional, Union
 
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -37,6 +37,8 @@ from scipy.io import wavfile
 from chaincap.archs import ARCHITECTURES
 from chaincap.chain import (
     SAMPLE_RATE,
+    Branch,
+    Split,
     Stage,
     load_ir,
     read_nam_file,
@@ -60,13 +62,13 @@ V3_DOWNLOAD = (
     "https://drive.usercontent.google.com/download?"
     "id=1Pgf8PdE0rKB1TD4TRPKbpNo1ByR3IOm9&export=download&confirm=t"
 )
-KINDS = ("nam", "ir")
+KINDS = ("nam", "ir", "di")
 MAX_UPLOAD = 64 * 1024 * 1024
 PREVIEW_MAX_S = 30.0
 # IR de caixa gerado pelo app (ver chaincap/cab_ir.py), livre para distribuir.
 BUILTIN_CAB = "Caixa 4x12 genérica.wav"
-# Áudios de teste do preview: só estas gravações CC0 do Freesound, embutidas
-# no app (ver packaging/make_demo_dis.py). O usuário escolhe entre elas.
+# Áudios de teste do preview: gravações CC0 do Freesound embutidas no app (ver
+# packaging/make_demo_dis.py), mais os DIs que o usuário enviar (só locais).
 DEMO_DI_DIR = Path(__file__).resolve().parent / "assets" / "di"
 BUILTIN_DI = "Strat limpa - loop (mil_dew).wav"  # padrão do preview
 # Tipos de captura sem caixa: precisam de IR depois para não soarem ásperos.
@@ -181,29 +183,39 @@ def list_files():
         k: [_describe(k, p) for p in sorted((FILES / k).iterdir()) if p.is_file()]
         for k in KINDS
     }
-    out["di"] = [_describe("di", p) for p in _demo_dis()]
+    builtin = [{**_describe("di", p), "builtin": True} for p in _demo_dis()]
+    out["di"] = builtin + out["di"]
     return out
 
 
 @app.post("/api/files")
-async def upload(kind: Literal["nam", "ir"] = Form(...), file: UploadFile = File(...)):
+async def upload(kind: Literal["nam", "ir", "di"] = Form(...), file: UploadFile = File(...)):
     name = _safe_name(file.filename or "arquivo")
     ext = os.path.splitext(name)[1]
     if kind == "nam" and ext != ".nam":
         raise HTTPException(400, "Capturas precisam ser arquivos .nam")
-    if kind == "ir" and ext != ".wav":
-        raise HTTPException(400, "IRs precisam ser arquivos .wav")
+    if kind in ("ir", "di") and ext != ".wav":
+        raise HTTPException(400, "IRs e DIs precisam ser arquivos .wav")
     data = await file.read(MAX_UPLOAD + 1)
     if len(data) > MAX_UPLOAD:
         raise HTTPException(413, "Arquivo maior que 64 MB")
     dest = _unique(FILES / kind, name)
+    if kind == "di":  # não pode ter o mesmo nome de um áudio embutido
+        builtin = {p.name for p in _demo_dis()}
+        stem_, ext_ = os.path.splitext(dest.name)
+        i = 2
+        while dest.name in builtin or dest.exists():
+            dest = FILES / "di" / f"{stem_} ({i}){ext_}"
+            i += 1
     tmp = dest.with_suffix(dest.suffix + ".part")
     tmp.write_bytes(data)
     try:
         if kind == "nam":
             read_nam_file(tmp)
-        else:
+        elif kind == "ir":
             load_ir(tmp)
+        else:
+            read_wav_mono(tmp)
     except Exception as e:
         tmp.unlink(missing_ok=True)
         raise HTTPException(400, f"{name}: {e}")
@@ -231,6 +243,22 @@ class StageIn(BaseModel):
     enabled: bool = True
 
 
+class BranchIn(BaseModel):
+    stages: List[StageIn] = []
+    level_db: float = Field(0.0, ge=-48, le=12)
+    invert: bool = False
+    enabled: bool = True
+
+
+class SplitIn(BaseModel):
+    type: Literal["split"]
+    branches: List[BranchIn] = Field(..., min_length=2, max_length=4)
+    enabled: bool = True  # (não usado: uma divisão não tem bypass próprio)
+
+
+NodeIn = Annotated[Union[StageIn, SplitIn], Field(discriminator="type")]
+
+
 def _to_stage(s: StageIn) -> Stage:
     if s.job:
         if s.type != "nam":
@@ -252,9 +280,26 @@ def _to_stage(s: StageIn) -> Stage:
     )
 
 
-def _active(stages: List[StageIn]) -> List[Stage]:
-    out = [_to_stage(s) for s in stages if s.enabled]
-    if not out:
+def _active(nodes: List[NodeIn]):
+    """Converte o que veio da interface em nós do motor, pulando o que está em bypass."""
+    out, n_stages = [], 0
+    if sum(isinstance(n, SplitIn) for n in nodes) > 1:
+        raise HTTPException(400, "Só uma divisão por cadeia")
+    for n in nodes:
+        if isinstance(n, SplitIn):
+            branches = []
+            for b in n.branches:
+                st = [_to_stage(s) for s in b.stages if s.enabled]
+                if b.enabled:
+                    n_stages += len(st)
+                branches.append(Branch(stages=st, level_db=b.level_db, invert=b.invert, enabled=b.enabled))
+            if not any(b.enabled for b in branches):
+                raise HTTPException(400, "Todas as cadeias da divisão estão no mudo")
+            out.append(Split(branches=branches))
+        elif n.enabled:
+            out.append(_to_stage(n))
+            n_stages += 1
+    if not n_stages:
         raise HTTPException(400, "A cadeia está vazia (ou todos os estágios em bypass)")
     return out
 
@@ -269,15 +314,20 @@ def _wav_bytes(y: np.ndarray) -> bytes:
 def _di_clip(di: Optional[str], seconds: float) -> np.ndarray:
     n = int(min(seconds, PREVIEW_MAX_S) * SAMPLE_RATE)
     name = Path(di or BUILTIN_DI).name
-    path = DEMO_DI_DIR / name
-    if path not in _demo_dis():
-        raise HTTPException(404, f"Áudio de teste não encontrado: {name}")
-    x, _ = read_wav_mono(path)
+    builtin = DEMO_DI_DIR / name
+    path = builtin if builtin in _demo_dis() else _file_path("di", name)
+    x, sr = read_wav_mono(path)
+    if sr != SAMPLE_RATE:
+        # DIs baixados costumam vir em 44,1 kHz: reamostra para 48 kHz.
+        from scipy.signal import resample_poly
+
+        g = int(np.gcd(sr, SAMPLE_RATE))
+        x = resample_poly(x[: int(seconds * sr) + sr], SAMPLE_RATE // g, sr // g).astype(np.float32)
     return x[:n]
 
 
 class PreviewIn(BaseModel):
-    stages: List[StageIn]
+    stages: List[NodeIn]
     di: Optional[str] = None
     seconds: float = Field(15.0, gt=0, le=PREVIEW_MAX_S)
 
@@ -511,7 +561,7 @@ class JobIn(BaseModel):
     arch: Literal[ARCHITECTURES] = "standard"  # type: ignore[valid-type]
     epochs: int = Field(100, ge=1, le=1000)
     gpu_usd_per_hour: Optional[float] = Field(None, ge=0)
-    stages: List[StageIn]
+    stages: List[NodeIn]
 
 
 @app.post("/api/jobs")
@@ -523,18 +573,28 @@ def create_job(req: JobIn):
     d = JOBS / jid
     (d / "inputs").mkdir(parents=True)
     # Copia os arquivos: o job continua reprodutível mesmo se a biblioteca mudar.
-    chain_stages = []
-    for st in stages:
+    def snap(st: Stage) -> dict:
         dest = _unique(d / "inputs", Path(st.file).name)
         shutil.copy2(st.file, dest)
-        chain_stages.append({
+        return {
             "type": st.type,
             "file": f"inputs/{dest.name}",
             "input_gain_db": st.input_gain_db,
             "output_gain_db": st.output_gain_db,
             "ir_max_ms": st.ir_max_ms,
             "ir_normalize": st.ir_normalize,
-        })
+        }
+
+    chain_stages = []
+    for node in stages:
+        if isinstance(node, Split):
+            chain_stages.append({"type": "split", "branches": [
+                {"level_db": b.level_db, "invert": b.invert, "enabled": b.enabled,
+                 "stages": [snap(st) for st in b.stages]}
+                for b in node.branches
+            ]})
+        else:
+            chain_stages.append(snap(node))
     (d / "chain.json").write_text(json.dumps(
         {"name": req.name, "arch": req.arch, "stages": chain_stages}, indent=2, ensure_ascii=False
     ))
@@ -545,6 +605,7 @@ def create_job(req: JobIn):
         "epochs": req.epochs,
         "gpu_usd_per_hour": req.gpu_usd_per_hour,
         "stages": [s.model_dump() for s in req.stages if s.enabled],
+        "has_split": any(isinstance(s, SplitIn) for s in req.stages),
         "status": "queued",
         "created_at": time.time(),
     }

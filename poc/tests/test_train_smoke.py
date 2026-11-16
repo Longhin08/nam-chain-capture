@@ -56,3 +56,34 @@ def test_cli_run_smoke(tmp_path):
     a1 = json.loads((out / "chain.a1.nam").read_text())
     assert a1["version"] == "0.5.4"
     assert a1["weights"] == nam["weights"]
+
+
+def test_cli_run_smoke_with_split(tmp_path):
+    """O worker de treino entende a divisão no chain.json."""
+    rng = np.random.default_rng(1)
+    n = 1_200_000
+    x = (rng.standard_normal(n) * 0.1).astype(np.float32)
+    x[480_000 - 48_000 : 480_000] = 0
+    x[-432_000 - 48_000 : -432_000] = 0
+    inp = tmp_path / "input.wav"
+    write_wav_24(inp, x)
+    chain = {
+        "name": "dual",
+        "arch": "nano",
+        "stages": [
+            {"type": "split", "branches": [
+                {"stages": [{"type": "nam", "file": str(FIXTURES / "legacy_nano.nam")}], "level_db": -3},
+                {"stages": [{"type": "nam", "file": str(FIXTURES / "legacy_gated.nam")}], "invert": True},
+            ]},
+        ],
+    }
+    (tmp_path / "chain.json").write_text(json.dumps(chain))
+    out = tmp_path / "out"
+    rc = main(["run", str(tmp_path / "chain.json"), "--input", str(inp), "--out", str(out),
+               "--smoke", "--epochs", "1", "--skip-input-check"])
+    assert rc == 0
+    md = json.loads((out / "chain.nam").read_text())["metadata"]["chain_capture"]
+    split = md["stages"][0]
+    assert split["type"] == "split" and len(split["branches"]) == 2
+    assert split["branches"][1]["invert"] is True
+    assert (out / "chain.a1.nam").is_file()

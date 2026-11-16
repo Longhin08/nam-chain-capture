@@ -5,11 +5,14 @@ cadeia e treina uma única captura nova que reproduz a cadeia inteira.
 """
 
 from . import _compat  # noqa: F401  (precisa vir antes de qualquer import de nam)
-from .chain import Stage, ChainResult, load_nam_model, load_ir, render_chain
+from .chain import Stage, Branch, Split, parse_node, ChainResult, load_nam_model, load_ir, render_chain
 from .archs import ARCHITECTURES, wavenet_config
 
 __all__ = [
     "Stage",
+    "Branch",
+    "Split",
+    "parse_node",
     "ChainResult",
     "load_nam_model",
     "load_ir",

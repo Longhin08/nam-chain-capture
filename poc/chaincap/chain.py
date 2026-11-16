@@ -56,6 +56,54 @@ class Stage:
 
 
 @dataclass
+class Branch:
+    """Uma das cadeias paralelas de uma divisão. Sem estágios = sinal limpo."""
+
+    stages: List[Stage] = field(default_factory=list)
+    level_db: float = 0.0
+    invert: bool = False  # inverte a fase no mixer
+    enabled: bool = True  # False = mudo
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any], base_dir: Optional[Path] = None) -> "Branch":
+        stages = []
+        for sd in d.get("stages", []):
+            if sd.get("type") == "split":
+                raise ValueError("Divisões dentro de divisões não são suportadas")
+            stages.append(Stage.from_dict(sd, base_dir))
+        return cls(
+            stages=stages,
+            level_db=float(d.get("level_db", 0.0)),
+            invert=bool(d.get("invert", False)),
+            enabled=bool(d.get("enabled", True)),
+        )
+
+
+@dataclass
+class Split:
+    """Divide o sinal em cadeias paralelas e soma as saídas (mixer mono)."""
+
+    branches: List[Branch]
+    type: Literal["split"] = "split"
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any], base_dir: Optional[Path] = None) -> "Split":
+        branches = [Branch.from_dict(b, base_dir) for b in d.get("branches", [])]
+        if not 2 <= len(branches) <= 4:
+            raise ValueError("Uma divisão precisa de 2 a 4 cadeias")
+        return cls(branches=branches)
+
+
+Node = Union[Stage, Split]
+
+
+def parse_node(d: Dict[str, Any], base_dir: Optional[Path] = None) -> Node:
+    if d.get("type") == "split":
+        return Split.from_dict(d, base_dir)
+    return Stage.from_dict(d, base_dir)
+
+
+@dataclass
 class ChainResult:
     y: np.ndarray
     warnings: List[str] = field(default_factory=list)
@@ -164,75 +212,128 @@ def apply_ir(x: np.ndarray, h: np.ndarray) -> np.ndarray:
 # ------------------------------------------------------------------- cadeia
 
 
-def render_chain(x: np.ndarray, stages: Sequence[Stage]) -> ChainResult:
-    """Passa `x` por todos os estágios, na ordem dada (nunca reordena)."""
-    if not stages:
+class _Ctx:
+    """Estado compartilhado durante a renderização (avisos e calibração)."""
+
+    def __init__(self):
+        self.warnings: List[str] = []
+        self.input_level_dbu: Optional[float] = None
+        self.calibrated = False
+
+
+def _run_stage(y: np.ndarray, st: Stage, ctx: _Ctx, pre_gain_db: float, label: str):
+    """Aplica um estágio. Retorna (y, metadados, nam_visto)."""
+    y = y * db_to_gain(st.input_gain_db)
+    entry: Dict[str, Any] = {
+        "type": st.type,
+        "file": Path(st.file).name,
+        "input_gain_db": st.input_gain_db,
+        "output_gain_db": st.output_gain_db,
+    }
+    is_nam = st.type == "nam"
+    if is_nam:
+        model, d = load_nam_model(st.file)
+        md = d.get("metadata") or {}
+        entry.update(
+            architecture=d.get("architecture"),
+            version=d.get("version"),
+            name=md.get("name"),
+            modeled_by=md.get("modeled_by"),
+        )
+        if not ctx.calibrated:
+            ctx.calibrated = True
+            lvl = md.get("input_level_dbu")
+            if lvl is not None:
+                # Se o sinal entra +g dB no modelo, a calibração efetiva do
+                # conjunto cai g dB.
+                ctx.input_level_dbu = float(lvl) - (pre_gain_db + st.input_gain_db)
+        y = nam_infer(model, y)
+    elif st.type == "ir":
+        h, w = load_ir(st.file, max_ms=st.ir_max_ms, normalize=st.ir_normalize)
+        ctx.warnings.extend(w)
+        entry["ir_samples"] = int(len(h))
+        y = apply_ir(y, h)
+    else:
+        raise ValueError(f"{label}: tipo desconhecido {st.type!r}")
+    y = y * db_to_gain(st.output_gain_db)
+    if not np.all(np.isfinite(y)):
+        raise FloatingPointError(f"{label} ({entry['file']}) gerou NaN/inf")
+    return y, entry, is_nam
+
+
+def _run_stages(y, stages: Sequence[Stage], ctx: _Ctx, pre_gain_db: float, prefix: str):
+    meta = []
+    for i, st in enumerate(stages):
+        y, entry, is_nam = _run_stage(y, st, ctx, pre_gain_db, f"{prefix}estágio {i + 1}")
+        if not ctx.calibrated:
+            pre_gain_db += st.input_gain_db + st.output_gain_db
+        meta.append(entry)
+    return y, meta, pre_gain_db
+
+
+def render_chain(x: np.ndarray, nodes: Sequence[Node]) -> ChainResult:
+    """Passa `x` pelos estágios na ordem dada (nunca reordena).
+
+    Um nó `Split` manda o mesmo sinal para cada cadeia ligada e soma as saídas
+    (com o nível e a fase de cada uma). Só uma divisão por cadeia.
+    """
+    if not nodes:
         raise ValueError("A cadeia precisa de pelo menos um estágio")
-    warnings: List[str] = []
+    if sum(isinstance(n, Split) for n in nodes) > 1:
+        raise ValueError("Só uma divisão por cadeia")
+    ctx = _Ctx()
     meta: List[Dict[str, Any]] = []
-    input_level_dbu: Optional[float] = None
     y = np.asarray(x, dtype=np.float32)
-    first_nam_seen = False
     pre_gain_db = 0.0  # ganho acumulado antes do 1º NAM (afeta a calibração)
 
-    for i, st in enumerate(stages):
-        y = y * db_to_gain(st.input_gain_db)
-        entry: Dict[str, Any] = {
-            "type": st.type,
-            "file": Path(st.file).name,
-            "input_gain_db": st.input_gain_db,
-            "output_gain_db": st.output_gain_db,
-        }
-        if st.type == "nam":
-            model, d = load_nam_model(st.file)
-            md = d.get("metadata") or {}
-            entry.update(
-                architecture=d.get("architecture"),
-                version=d.get("version"),
-                name=md.get("name"),
-                modeled_by=md.get("modeled_by"),
-            )
-            if not first_nam_seen:
-                first_nam_seen = True
-                lvl = md.get("input_level_dbu")
-                if lvl is not None:
-                    # Se o sinal entra +g dB no modelo, a calibração efetiva do
-                    # conjunto cai g dB.
-                    input_level_dbu = float(lvl) - (pre_gain_db + st.input_gain_db)
-            y = nam_infer(model, y)
-        elif st.type == "ir":
-            h, w = load_ir(st.file, max_ms=st.ir_max_ms, normalize=st.ir_normalize)
-            warnings.extend(w)
-            entry["ir_samples"] = int(len(h))
-            y = apply_ir(y, h)
-        else:
-            raise ValueError(f"Estágio {i}: tipo desconhecido {st.type!r}")
-        y = y * db_to_gain(st.output_gain_db)
-        if not first_nam_seen:
-            pre_gain_db += st.input_gain_db + st.output_gain_db
-        if not np.all(np.isfinite(y)):
-            raise FloatingPointError(f"Estágio {i} ({entry['file']}) gerou NaN/inf")
-        meta.append(entry)
+    for n_i, node in enumerate(nodes):
+        if isinstance(node, Stage):
+            y, m, pre_gain_db = _run_stages(y, [node], ctx, pre_gain_db, "")
+            meta.extend(m)
+            continue
+        live = [(k, b) for k, b in enumerate(node.branches) if b.enabled]
+        if not live:
+            raise ValueError("Divisão com todas as cadeias no mudo")
+        mixed = np.zeros_like(y)
+        split_meta = {"type": "split", "branches": []}
+        for k, b in live:
+            # Calibração: se ainda não houve NAM, vem do 1º NAM da 1ª cadeia ligada.
+            out, _, _ = _run_stages(y, b.stages, ctx, pre_gain_db, f"cadeia {'ABCD'[k]}, ")
+            g = db_to_gain(b.level_db) * (-1.0 if b.invert else 1.0)
+            mixed += g * out
+        for k, b in enumerate(node.branches):
+            split_meta["branches"].append({
+                "level_db": b.level_db,
+                "invert": b.invert,
+                "enabled": b.enabled,
+                "stages": [
+                    {"type": st.type, "file": Path(st.file).name,
+                     "input_gain_db": st.input_gain_db, "output_gain_db": st.output_gain_db}
+                    for st in b.stages
+                ],
+            })
+        y = mixed.astype(np.float32)
+        meta.append(split_meta)
 
     clip_gain = 1.0
     peak = float(np.max(np.abs(y)))
     if peak >= PEAK_LIMIT:
         clip_gain = PEAK_LIMIT / peak
         y = y * clip_gain
-        warnings.append(
+        ctx.warnings.append(
             f"Saída da cadeia clipava (pico {peak:.2f}); aplicado "
             f"{20 * np.log10(clip_gain):.1f} dB no último estágio"
         )
     if peak == 0.0:
         raise ValueError("A cadeia produziu silêncio")
 
-    for w in warnings:
+    for w in ctx.warnings:
         logger.warning(w)
     return ChainResult(
         y=y.astype(np.float32),
-        warnings=warnings,
+        warnings=ctx.warnings,
         clip_gain=clip_gain,
-        input_level_dbu=input_level_dbu,
+        input_level_dbu=ctx.input_level_dbu,
         stages_metadata=meta,
     )
 

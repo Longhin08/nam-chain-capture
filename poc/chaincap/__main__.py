@@ -13,6 +13,11 @@
         {"type": "ir",  "file": "cab.wav", "ir_max_ms": 20}
       ]
     }
+Divisão (dois amps em paralelo, somados no mixer):
+    {"type": "split", "branches": [
+        {"level_db": 0, "invert": false, "stages": [{"type": "nam", "file": "ampA.nam"}]},
+        {"level_db": -3, "invert": true, "stages": [{"type": "nam", "file": "ampB.nam"}]}
+    ]}
 Caminhos relativos em `stages[].file` são resolvidos a partir do chain.json.
 """
 
@@ -26,12 +31,12 @@ import time
 from pathlib import Path
 
 from .archs import ARCHITECTURES
-from .chain import Stage, read_wav_mono, render_chain, write_wav_24, SAMPLE_RATE
+from .chain import parse_node, read_wav_mono, render_chain, write_wav_24, SAMPLE_RATE
 
 
 def _load_chain(path: Path):
     spec = json.loads(path.read_text())
-    stages = [Stage.from_dict(s, base_dir=path.parent) for s in spec["stages"]]
+    stages = [parse_node(s, base_dir=path.parent) for s in spec["stages"]]
     return spec, stages
 
 

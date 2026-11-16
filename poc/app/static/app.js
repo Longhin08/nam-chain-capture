@@ -12,6 +12,7 @@ const KIND_LABEL = { nam: "Captura NAM", ir: "IR de caixa" };
 const DROP_TEXT = {
   nam: "Solte arquivos .nam aqui ou clique para escolher",
   ir: "Solte IRs .wav aqui ou clique para escolher",
+  di: "Solte gravações de guitarra crua (.wav) aqui ou clique para escolher",
 };
 
 const state = {
@@ -210,7 +211,16 @@ function renderFiles() {
     info.querySelector(".fmeta").textContent = describeFile(f);
     info.title = f.name;
     li.append(info);
-    if (!f.error) {
+    if (f.builtin) {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = "Exemplo";
+      tag.title = "Gravação em domínio público que vem com o app";
+      li.append(tag, document.createElement("span"));
+      ul.append(li);
+      continue;
+    }
+    if (f.kind !== "di" && !f.error) {
       li.draggable = true;
       li.addEventListener("dragstart", (e) => {
         e.dataTransfer.setData("application/x-chaincap-file", JSON.stringify({ kind: f.kind, name: f.name }));
@@ -243,7 +253,7 @@ function renderFiles() {
   }
 }
 
-async function uploadFiles(fileList, { addToChainAt = null } = {}) {
+async function uploadFiles(fileList, { target = null } = {}) {
   const added = [];
   for (const file of fileList) {
     const ext = file.name.toLowerCase().split(".").pop();
@@ -251,8 +261,8 @@ async function uploadFiles(fileList, { addToChainAt = null } = {}) {
       toast(`${file.name}: envie capturas .nam ou IRs .wav`, true);
       continue;
     }
-    // .nam vai para capturas; .wav é IR de caixa
-    const kind = ext === "nam" ? "nam" : "ir";
+    // .nam vai para capturas; .wav é IR de caixa, ou DI se a aba DIs estiver aberta
+    const kind = ext === "nam" ? "nam" : state.kind === "di" && !target ? "di" : "ir";
     const fd = new FormData();
     fd.append("kind", kind);
     fd.append("file", file);
@@ -261,19 +271,19 @@ async function uploadFiles(fileList, { addToChainAt = null } = {}) {
       const info = await r.json();
       toast(`${info.name} enviado`);
       added.push(info);
+      if (kind === "di") {
+        // DI novo vira o áudio de teste padrão.
+        try { localStorage.setItem(DI_KEY, info.name); } catch {}
+      }
     } catch (e) {
       toast(e.message, true);
     }
   }
   await refreshFiles();
-  if (addToChainAt != null && added.length) {
-    let at = Math.min(addToChainAt, state.chain.length);
-    for (const info of added) {
-      addStage(info.kind, info.name);
-      state.chain.splice(at++, 0, state.chain.pop());
-    }
-    saveChain();
-    renderChain();
+  if (target && added.length) {
+    let at = Math.min(target.at, target.arr.length);
+    for (const info of added) if (info.kind !== "di") target.arr.splice(at++, 0, newStage(info.kind, info.name));
+    commit();
   }
   return added;
 }
@@ -302,28 +312,88 @@ function setupLibrary() {
     if (!hasFiles(e)) return;
     e.preventDefault();
     clearDropMarks();
-    const pedal = e.target.closest && e.target.closest(".pedal");
-    let at = null;
-    if (pedal) {
-      const i = state.chain.findIndex((s) => s.uid === pedal.dataset.uid);
+    const near = (sel) => (e.target.closest ? e.target.closest(sel) : null);
+    const pedal = near(".pedal"), row = near(".branch-row");
+    let target = null;
+    if (pedal && locate(pedal.dataset.uid)) {
+      const loc = locate(pedal.dataset.uid);
       const r = pedal.getBoundingClientRect();
-      at = i + (e.clientX > r.left + r.width / 2 ? 1 : 0);
-    } else if (e.target.closest && e.target.closest("#board")) {
-      at = state.chain.length;
+      target = { arr: loc.arr, at: loc.i + (e.clientX > r.left + r.width / 2 ? 1 : 0) };
+    } else if (row) {
+      const sp = splitNode();
+      const b = sp && sp.branches.find((x) => x.uid === row.dataset.branchUid);
+      if (b) target = { arr: b.stages, at: b.stages.length };
+    } else if (near("#board")) {
+      target = { arr: state.chain, at: state.chain.length };
     }
-    uploadFiles(e.dataTransfer.files, { addToChainAt: at });
+    uploadFiles(e.dataTransfer.files, { target });
   });
 }
 
 // ------------------------------------------------------------ cadeia
+//
+// state.chain é a lista principal de nós. Um nó é um estágio
+//   { uid, type: "nam" | "ir", file | job, input_gain_db, output_gain_db, ... }
+// ou uma divisão (no máximo uma)
+//   { uid, type: "split", branches: [{ uid, stages: [estágios], level_db, invert, enabled }, ...] }
+// Antes da divisão: estágios em comum; depois dela: estágios aplicados à soma.
 
-function addStage(type, file, extra = {}) {
-  state.chain.push({
+const AMPISH = ["amp", "amp_cab", "preamp", "pedal_amp", "amp_pedal_cab"];
+
+function newStage(type, file, extra = {}) {
+  return {
     uid: uid(), type, file, input_gain_db: 0, output_gain_db: 0,
     ir_max_ms: type === "ir" ? 20 : null, ir_normalize: true, enabled: true, ...extra,
-  });
+  };
+}
+
+function addStage(type, file, extra = {}) {
+  state.chain.push(newStage(type, file, extra));
   saveChain();
   renderChain();
+}
+
+const isSplit = (n) => n && n.type === "split";
+const splitNode = () => state.chain.find(isSplit) || null;
+const BRANCH_NAMES = "ABCD";
+
+// Todas as listas que guardam estágios (principal + cadeias da divisão).
+function stageLists() {
+  const out = [state.chain];
+  const sp = splitNode();
+  if (sp) for (const b of sp.branches) out.push(b.stages);
+  return out;
+}
+
+function locate(uidv) {
+  for (const arr of stageLists()) {
+    const i = arr.findIndex((n) => n.uid === uidv);
+    if (i >= 0) return { arr, i };
+  }
+  return null;
+}
+
+function allStages() {
+  const out = [];
+  for (const n of state.chain) {
+    if (isSplit(n)) n.branches.forEach((b) => out.push(...b.stages));
+    else out.push(n);
+  }
+  return out;
+}
+
+// Caminhos que o sinal percorre (um por cadeia ligada), só com estágios ligados.
+function signalPaths() {
+  const sp = splitNode();
+  const on = (arr) => arr.filter((s) => !isSplit(s) && s.enabled);
+  if (!sp) return [on(state.chain)];
+  const k = state.chain.indexOf(sp);
+  const pre = on(state.chain.slice(0, k)), post = on(state.chain.slice(k + 1));
+  return sp.branches.filter((b) => b.enabled).map((b) => [...pre, ...on(b.stages), ...post]);
+}
+
+function activeStageCount() {
+  return new Set(signalPaths().flat().map((s) => s.uid)).size;
 }
 
 function stageMissing(st) {
@@ -331,7 +401,7 @@ function stageMissing(st) {
   return !fileInfo(st.type, st.file);
 }
 
-function makeKnob(label, value, onChange) {
+function makeKnob(label, value, onChange, { min = -24, max = 24 } = {}) {
   const wrap = document.createElement("div");
   wrap.className = "knob-wrap";
   const knob = document.createElement("div");
@@ -339,8 +409,8 @@ function makeKnob(label, value, onChange) {
   knob.tabIndex = 0;
   knob.setAttribute("role", "slider");
   knob.setAttribute("aria-label", label);
-  knob.setAttribute("aria-valuemin", "-24");
-  knob.setAttribute("aria-valuemax", "24");
+  knob.setAttribute("aria-valuemin", String(min));
+  knob.setAttribute("aria-valuemax", String(max));
   const lab = document.createElement("span");
   lab.className = "knob-label";
   lab.textContent = label;
@@ -348,8 +418,10 @@ function makeKnob(label, value, onChange) {
   val.className = "knob-value";
   let v = value;
   const set = (nv, commit = true) => {
-    v = Math.max(-24, Math.min(24, Math.round(nv * 2) / 2));
-    knob.style.setProperty("--angle", `${(v / 24) * 135}deg`);
+    v = Math.max(min, Math.min(max, Math.round(nv * 2) / 2));
+    // 0 dB sempre no meio-dia; cada lado usa a sua faixa.
+    const ang = v >= 0 ? (v / max) * 135 : (v / -min) * -135;
+    knob.style.setProperty("--angle", `${ang}deg`);
     knob.setAttribute("aria-valuenow", String(v));
     knob.setAttribute("aria-valuetext", fmtDb(v));
     val.textContent = fmtDb(v);
@@ -360,8 +432,8 @@ function makeKnob(label, value, onChange) {
     const step = e.shiftKey ? 3 : 0.5;
     const map = { ArrowUp: step, ArrowRight: step, ArrowDown: -step, ArrowLeft: -step, PageUp: 6, PageDown: -6 };
     if (e.key in map) { e.preventDefault(); set(v + map[e.key]); }
-    if (e.key === "Home") { e.preventDefault(); set(-24); }
-    if (e.key === "End") { e.preventDefault(); set(24); }
+    if (e.key === "Home") { e.preventDefault(); set(min); }
+    if (e.key === "End") { e.preventDefault(); set(max); }
     if (e.key === "0") { e.preventDefault(); set(0); }
   });
   knob.addEventListener("pointerdown", (e) => {
@@ -388,123 +460,301 @@ let dragUid = null;
 let controlActive = false;
 document.addEventListener("pointerup", () => { controlActive = false; });
 
-function renderChain() {
-  const ol = $("#chain");
-  ol.innerHTML = "";
-  const tpl = $("#pedal-tpl");
-  state.chain.forEach((st, i) => {
-    const li = tpl.content.firstElementChild.cloneNode(true);
-    li.dataset.kind = st.type;
-    li.dataset.uid = st.uid;
-    if (st.job) li.dataset.trained = "";
-    li.classList.toggle("bypassed", !st.enabled);
-    const info = st.job ? null : fileInfo(st.type, st.file);
-    $(".kind", li).textContent = st.job ? "Modelo treinado" : KIND_LABEL[st.type];
-    $(".pedal-name", li).textContent = st.label || (info && info.title) || stem(st.file || "");
-    const meta = $(".pedal-meta", li);
-    if (stageMissing(st)) {
-      meta.textContent = "Arquivo não está mais na biblioteca";
-    } else if (info) {
-      meta.textContent = describeFile(info);
-    } else {
-      meta.textContent = st.arch || "";
-    }
-    const knobs = $(".knobs", li);
-    knobs.append(
-      makeKnob("Entrada", st.input_gain_db, (v) => { st.input_gain_db = v; saveChain(); }),
-      makeKnob("Saída", st.output_gain_db, (v) => { st.output_gain_db = v; saveChain(); }),
-    );
-    if (st.type === "ir") {
-      const opts = $(".ir-opts", li);
-      opts.hidden = false;
-      const on = $(".trunc-on", opts), ms = $(".trunc-ms", opts), norm = $(".norm", opts);
-      on.checked = st.ir_max_ms != null;
-      ms.value = st.ir_max_ms ?? 20;
-      ms.disabled = !on.checked;
-      norm.checked = st.ir_normalize;
-      on.onchange = () => { st.ir_max_ms = on.checked ? Number(ms.value) || 20 : null; ms.disabled = !on.checked; saveChain(); };
-      ms.onchange = () => { st.ir_max_ms = Math.max(1, Math.min(2000, Number(ms.value) || 20)); ms.value = st.ir_max_ms; saveChain(); };
-      norm.onchange = () => { st.ir_normalize = norm.checked; saveChain(); };
-    }
-    const fs = $(".footswitch", li);
-    fs.setAttribute("aria-pressed", String(st.enabled));
-    fs.onclick = () => { st.enabled = !st.enabled; saveChain(); renderChain(); };
-    $(".remove", li).onclick = () => { state.chain.splice(i, 1); saveChain(); renderChain(); };
-    const left = $(".move-left", li), right = $(".move-right", li);
-    left.disabled = i === 0;
-    right.disabled = i === state.chain.length - 1;
-    left.style.visibility = i === 0 ? "hidden" : "";
-    right.style.visibility = i === state.chain.length - 1 ? "hidden" : "";
-    left.onclick = () => moveStage(i, i - 1, ".move-left");
-    right.onclick = () => moveStage(i, i + 1, ".move-right");
+function commit() {
+  saveChain();
+  renderChain();
+}
 
-    for (const ctl of li.querySelectorAll("input, button")) {
-      ctl.addEventListener("pointerdown", () => { controlActive = true; });
+// Move o estágio arrastado (ou um arquivo da biblioteca) para arr[at].
+function dropInto(arr, at, e) {
+  const fileData = e.dataTransfer.getData("application/x-chaincap-file");
+  if (fileData) {
+    const f = JSON.parse(fileData);
+    arr.splice(at, 0, newStage(f.kind, f.name));
+  } else if (dragUid) {
+    const src = locate(dragUid);
+    if (!src) return;
+    if (src.arr === arr && src.i < at) at -= 1;
+    const [moved] = src.arr.splice(src.i, 1);
+    arr.splice(at, 0, moved);
+  }
+  commit();
+}
+
+function makePedal(st, arr, i) {
+  const li = $("#pedal-tpl").content.firstElementChild.cloneNode(true);
+  li.dataset.kind = st.type;
+  li.dataset.uid = st.uid;
+  if (st.job) li.dataset.trained = "";
+  li.classList.toggle("bypassed", !st.enabled);
+  const info = st.job ? null : fileInfo(st.type, st.file);
+  $(".kind", li).textContent = st.job ? "Modelo treinado" : KIND_LABEL[st.type];
+  $(".pedal-name", li).textContent = st.label || (info && info.title) || stem(st.file || "");
+  const meta = $(".pedal-meta", li);
+  if (stageMissing(st)) meta.textContent = "Arquivo não está mais na biblioteca";
+  else if (info) meta.textContent = describeFile(info);
+  else meta.textContent = st.arch || "";
+  $(".knobs", li).append(
+    makeKnob("Entrada", st.input_gain_db, (v) => { st.input_gain_db = v; saveChain(); }),
+    makeKnob("Saída", st.output_gain_db, (v) => { st.output_gain_db = v; saveChain(); }),
+  );
+  if (st.type === "ir") {
+    const opts = $(".ir-opts", li);
+    opts.hidden = false;
+    const on = $(".trunc-on", opts), ms = $(".trunc-ms", opts), norm = $(".norm", opts);
+    on.checked = st.ir_max_ms != null;
+    ms.value = st.ir_max_ms ?? 20;
+    ms.disabled = !on.checked;
+    norm.checked = st.ir_normalize;
+    on.onchange = () => { st.ir_max_ms = on.checked ? Number(ms.value) || 20 : null; ms.disabled = !on.checked; saveChain(); };
+    ms.onchange = () => { st.ir_max_ms = Math.max(1, Math.min(2000, Number(ms.value) || 20)); ms.value = st.ir_max_ms; saveChain(); };
+    norm.onchange = () => { st.ir_normalize = norm.checked; saveChain(); };
+  }
+  const fs = $(".footswitch", li);
+  fs.setAttribute("aria-pressed", String(st.enabled));
+  fs.onclick = () => { st.enabled = !st.enabled; commit(); };
+  $(".remove", li).onclick = () => { arr.splice(i, 1); commit(); };
+  // ‹ › movem dentro da mesma lista, pulando a divisão na lista principal.
+  const step = (dir) => {
+    let j = i + dir;
+    if (arr === state.chain && isSplit(arr[j])) {
+      // entra na cadeia A pela ponta mais próxima
+      const a = arr[j].branches[0].stages;
+      arr.splice(i, 1);
+      if (dir > 0) a.unshift(st); else a.push(st);
+    } else {
+      arr.splice(i, 1);
+      arr.splice(j, 0, st);
     }
-    li.addEventListener("dragstart", (e) => {
-      if (controlActive) { e.preventDefault(); return; }
-      if (e.target !== li) return;
-      dragUid = st.uid;
-      li.classList.add("dragging");
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", st.uid);
-    });
-    li.addEventListener("dragend", () => { dragUid = null; li.classList.remove("dragging"); clearDropMarks(); });
-    li.addEventListener("dragover", (e) => {
+    commit();
+    const el = document.querySelector(`.pedal[data-uid="${st.uid}"] ${dir < 0 ? ".move-left" : ".move-right"}`);
+    (el && el.style.visibility !== "hidden" ? el : document.querySelector(`.pedal[data-uid="${st.uid}"] .footswitch`)).focus();
+  };
+  const left = $(".move-left", li), right = $(".move-right", li);
+  const first = i === 0, last = i === arr.length - 1;
+  left.disabled = first; right.disabled = last;
+  left.style.visibility = first ? "hidden" : "";
+  right.style.visibility = last ? "hidden" : "";
+  left.onclick = () => step(-1);
+  right.onclick = () => step(1);
+
+  for (const ctl of li.querySelectorAll("input, button")) {
+    ctl.addEventListener("pointerdown", () => { controlActive = true; });
+  }
+  li.addEventListener("dragstart", (e) => {
+    if (controlActive) { e.preventDefault(); return; }
+    if (e.target !== li) return;
+    e.stopPropagation();
+    dragUid = st.uid;
+    li.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", st.uid);
+  });
+  li.addEventListener("dragend", () => { dragUid = null; li.classList.remove("dragging"); clearDropMarks(); });
+  li.addEventListener("dragover", (e) => {
+    const isFile = e.dataTransfer.types.includes("application/x-chaincap-file");
+    if (!dragUid && !isFile) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const after = e.offsetX > li.offsetWidth / 2;
+    clearDropMarks();
+    li.classList.add(after ? "drop-after" : "drop-before");
+  });
+  li.addEventListener("drop", (e) => {
+    if (e.dataTransfer.files && e.dataTransfer.files.length) return; // tratado na janela
+    e.preventDefault();
+    e.stopPropagation();
+    const after = li.classList.contains("drop-after");
+    clearDropMarks();
+    dropInto(arr, i + (after ? 1 : 0), e);
+  });
+  return li;
+}
+
+function makeToggle(label, pressed, title, onClick) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "toggle";
+  b.textContent = label;
+  b.title = title;
+  b.setAttribute("aria-pressed", String(pressed));
+  b.onclick = onClick;
+  b.addEventListener("pointerdown", () => { controlActive = true; });
+  return b;
+}
+
+function makeSplit(sp, i) {
+  const li = document.createElement("li");
+  li.className = "split-node";
+  li.dataset.uid = sp.uid;
+  const block = document.createElement("div");
+  block.className = "split-block";
+  block.setAttribute("role", "group");
+  block.setAttribute("aria-label", "Divisão do sinal");
+
+  const head = document.createElement("div");
+  head.className = "split-head";
+  const title = document.createElement("span");
+  title.className = "split-title";
+  title.textContent = "Divisão do sinal";
+  const hint = document.createElement("span");
+  hint.className = "split-hint";
+  hint.textContent = "as cadeias tocam juntas e são somadas no mixer";
+  const mv = (dir, label, glyph) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "icon";
+    b.textContent = glyph;
+    b.setAttribute("aria-label", label);
+    const j = i + dir;
+    b.disabled = j < 0 || j >= state.chain.length;
+    b.style.visibility = b.disabled ? "hidden" : "";
+    b.onclick = () => { state.chain.splice(i, 1); state.chain.splice(j, 0, sp); commit(); };
+    return b;
+  };
+  const undo = document.createElement("button");
+  undo.type = "button";
+  undo.className = "small";
+  undo.textContent = "Desfazer divisão";
+  undo.title = "Mantém os pedais da cadeia A no lugar da divisão e remove a cadeia B";
+  undo.onclick = () => unsplit(sp);
+  head.append(mv(-1, "Mover divisão para antes", "‹"), title, hint, mv(1, "Mover divisão para depois", "›"), undo);
+  block.append(head);
+
+  sp.branches.forEach((b, k) => {
+    const row = document.createElement("div");
+    row.className = "branch-row" + (b.enabled ? "" : " muted");
+    row.dataset.branchUid = b.uid;
+    const badge = document.createElement("span");
+    badge.className = "branch-badge";
+    badge.textContent = BRANCH_NAMES[k];
+    badge.setAttribute("aria-label", `Cadeia ${BRANCH_NAMES[k]}`);
+
+    const ol = document.createElement("ol");
+    ol.className = "branch-chain";
+    ol.setAttribute("aria-label", `Pedais da cadeia ${BRANCH_NAMES[k]}`);
+    b.stages.forEach((st, j) => ol.append(makePedal(st, b.stages, j)));
+    if (!b.stages.length) {
+      const empty = document.createElement("li");
+      empty.className = "branch-empty";
+      empty.textContent = "Vazia: passa o sinal limpo. Arraste pedais para cá.";
+      ol.append(empty);
+    }
+    // Soltar na área da cadeia (fora de um pedal) adiciona no fim dela.
+    row.addEventListener("dragover", (e) => {
       const isFile = e.dataTransfer.types.includes("application/x-chaincap-file");
       if (!dragUid && !isFile) return;
       e.preventDefault();
-      const after = e.offsetX > li.offsetWidth / 2;
-      clearDropMarks();
-      li.classList.add(after ? "drop-after" : "drop-before");
+      e.stopPropagation();
+      row.classList.add("drop-target");
     });
-    li.addEventListener("drop", (e) => {
+    row.addEventListener("dragleave", (e) => { if (!row.contains(e.relatedTarget)) row.classList.remove("drop-target"); });
+    row.addEventListener("drop", (e) => {
+      row.classList.remove("drop-target");
       if (e.dataTransfer.files && e.dataTransfer.files.length) return; // tratado na janela
       e.preventDefault();
       e.stopPropagation();
-      const after = li.classList.contains("drop-after");
-      clearDropMarks();
-      let target = i + (after ? 1 : 0);
-      const fileData = e.dataTransfer.getData("application/x-chaincap-file");
-      if (fileData) {
-        const f = JSON.parse(fileData);
-        addStage(f.kind, f.name);
-        const added = state.chain.pop();
-        state.chain.splice(target, 0, added);
-      } else if (dragUid) {
-        const from = state.chain.findIndex((s) => s.uid === dragUid);
-        if (from < target) target -= 1;
-        const [moved] = state.chain.splice(from, 1);
-        state.chain.splice(target, 0, moved);
-      }
-      saveChain();
-      renderChain();
+      dropInto(b.stages, b.stages.length, e);
     });
-    ol.append(li);
+
+    const mixer = document.createElement("div");
+    mixer.className = "mixer";
+    mixer.append(
+      makeKnob("Nível", b.level_db, (v) => { b.level_db = v; saveChain(); }, { min: -24, max: 12 }),
+      makeToggle("Ø fase", b.invert, "Inverte a fase desta cadeia (use se a soma ficar magra)", () => { b.invert = !b.invert; commit(); }),
+      makeToggle("Mudo", !b.enabled, "Silencia esta cadeia", () => {
+        if (b.enabled && sp.branches.filter((x) => x.enabled).length === 1) {
+          toast("Pelo menos uma cadeia precisa ficar ligada", true);
+          return;
+        }
+        b.enabled = !b.enabled;
+        commit();
+      }),
+    );
+    row.append(badge, ol, mixer);
+    block.append(row);
   });
-  const enabled = state.chain.filter((s) => s.enabled).length;
-  $("#board-hint").textContent = state.chain.length
-    ? `${enabled} de ${state.chain.length} estágios ligados. O sinal passa da esquerda para a direita; arraste os pedais para reordenar.`
+  li.append(block);
+  return li;
+}
+
+function splitChain() {
+  if (splitNode()) return;
+  // Divide a partir do 1º amp: ele e o que vem depois viram a cadeia A, e a
+  // cadeia B começa como cópia da A (é só trocar o amp dela).
+  const k = state.chain.findIndex((s) => {
+    if (s.job) return true;
+    const info = s.type === "nam" ? fileInfo("nam", s.file) : null;
+    return info && AMPISH.includes(info.gear_type);
+  });
+  const moved = k >= 0 ? state.chain.splice(k) : [];
+  const copy = moved.map((s) => ({ ...s, uid: uid() }));
+  const branch = (stages) => ({ uid: uid(), stages, level_db: 0, invert: false, enabled: true });
+  state.chain.push({ uid: uid(), type: "split", branches: [branch(moved), branch(copy)] });
+  commit();
+  toast(moved.length
+    ? "Cadeia B criada como cópia da A: troque o amp dela"
+    : "Divisão criada: arraste pedais para as cadeias A e B");
+}
+
+function unsplit(sp) {
+  const i = state.chain.indexOf(sp);
+  const backup = JSON.parse(JSON.stringify(state.chain));
+  state.chain.splice(i, 1, ...sp.branches[0].stages);
+  commit();
+  showUndo("Divisão desfeita: a cadeia A ficou no lugar.", backup);
+}
+
+let undoTimer;
+function showUndo(msg, backup) {
+  const bar = $("#undo-bar");
+  bar.innerHTML = "";
+  const p = document.createElement("span");
+  p.textContent = msg;
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "small";
+  b.textContent = "Desfazer";
+  b.onclick = () => { state.chain = backup; bar.hidden = true; commit(); };
+  bar.append(p, b);
+  bar.hidden = false;
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => { bar.hidden = true; }, 10000);
+}
+
+function renderChain() {
+  const ol = $("#chain");
+  ol.innerHTML = "";
+  state.chain.forEach((n, i) => ol.append(isSplit(n) ? makeSplit(n, i) : makePedal(n, state.chain, i)));
+  const total = allStages().length, active = activeStageCount();
+  const sp = splitNode();
+  $("#board-hint").textContent = total
+    ? `${active} de ${total} estágios ligados${sp ? `, sinal dividido em ${sp.branches.length} cadeias` : ""}. O sinal passa da esquerda para a direita; arraste os pedais para reordenar.`
     : "Monte a cadeia na ordem do sinal: drive, amp, caixa.";
-  $("#play-chain").disabled = !enabled;
+  const splitBtn = $("#split-chain");
+  splitBtn.disabled = !!sp;
+  splitBtn.title = sp ? "Já existe uma divisão nesta cadeia" : "Divide o sinal em duas cadeias paralelas (ex.: dois amps)";
+  $("#play-chain").disabled = !active;
   renderCabAlert();
   renderTrainNote();
 }
 
-// Captura só de amp no fim da cadeia, sem IR depois: o som fica áspero.
+// Captura só de amp no fim de um caminho do sinal, sem IR depois: som áspero.
 function renderCabAlert() {
   const box = $("#board-alert");
   if (!box || !state.status) return;
-  const on = state.chain.filter((s) => s.enabled);
-  let lastAmp = -1;
-  on.forEach((st, i) => {
-    const info = !st.job && st.type === "nam" ? fileInfo("nam", st.file) : null;
-    if (info && (state.status.amp_only_gear || []).includes(info.gear_type)) lastAmp = i;
-  });
-  const hasIrAfter = lastAmp >= 0 && on.slice(lastAmp + 1).some((s) => s.type === "ir");
-  if (lastAmp < 0 || hasIrAfter) { box.hidden = true; box.innerHTML = ""; return; }
-  const ampInfo = fileInfo("nam", on[lastAmp].file);
-  const name = (ampInfo && ampInfo.title) || stem(on[lastAmp].file);
+  let found = null;
+  for (const path of signalPaths()) {
+    let last = -1;
+    path.forEach((st, i) => {
+      const info = !st.job && st.type === "nam" ? fileInfo("nam", st.file) : null;
+      if (info && (state.status.amp_only_gear || []).includes(info.gear_type)) last = i;
+    });
+    if (last >= 0 && !path.slice(last + 1).some((s) => s.type === "ir")) { found = path[last]; break; }
+  }
+  if (!found) { box.hidden = true; box.innerHTML = ""; return; }
+  const ampInfo = fileInfo("nam", found.file);
+  const name = (ampInfo && ampInfo.title) || stem(found.file);
   box.hidden = false;
   box.innerHTML = "";
   const p = document.createElement("p");
@@ -517,12 +767,9 @@ function renderCabAlert() {
     b.className = "secondary";
     b.textContent = "Adicionar caixa genérica";
     b.onclick = () => {
-      const at = state.chain.indexOf(on[lastAmp]) + 1;
-      addStage("ir", cab);
-      const added = state.chain.pop();
-      state.chain.splice(at, 0, added);
-      saveChain();
-      renderChain();
+      const loc = locate(found.uid);
+      loc.arr.splice(loc.i + 1, 0, newStage("ir", cab));
+      commit();
       toast("Caixa genérica adicionada depois do amp");
     };
     box.append(b);
@@ -534,48 +781,50 @@ function renderCabAlert() {
   }
 }
 
-function moveStage(from, to, focusSel) {
-  const [s] = state.chain.splice(from, 1);
-  state.chain.splice(to, 0, s);
-  saveChain();
-  renderChain();
-  const el = document.querySelector(`.pedal[data-uid="${s.uid}"] ${focusSel}`);
-  (el && el.style.visibility !== "hidden" ? el : document.querySelector(`.pedal[data-uid="${s.uid}"] .footswitch`)).focus();
-}
-
 function clearDropMarks() {
   for (const el of document.querySelectorAll(".drop-before, .drop-after")) el.classList.remove("drop-before", "drop-after");
+  for (const el of document.querySelectorAll(".drop-target")) el.classList.remove("drop-target");
 }
 
 function setupBoard() {
   const board = $("#board");
   board.addEventListener("dragover", (e) => {
-    if (e.dataTransfer.types.includes("application/x-chaincap-file")) e.preventDefault();
+    if (e.dataTransfer.types.includes("application/x-chaincap-file") || dragUid) e.preventDefault();
   });
   board.addEventListener("drop", (e) => {
-    const fileData = e.dataTransfer.getData("application/x-chaincap-file");
-    if (!fileData) return;
+    if (e.dataTransfer.files && e.dataTransfer.files.length) return; // tratado na janela
+    if (!e.dataTransfer.getData("application/x-chaincap-file") && !dragUid) return;
     e.preventDefault();
-    const f = JSON.parse(fileData);
-    addStage(f.kind, f.name);
+    dropInto(state.chain, state.chain.length, e);
   });
+  $("#split-chain").onclick = splitChain;
   $("#clear-chain").onclick = () => {
     if (!state.chain.length) return;
     const backup = state.chain;
     state.chain = [];
-    saveChain();
-    renderChain();
-    toast("Cadeia limpa");
-    state.lastCleared = backup;
+    commit();
+    showUndo("Cadeia limpa.", backup);
   };
 }
 
-function stagesPayload(stages = state.chain) {
-  return stages.map((s) => ({
+function stagePayload(s) {
+  return {
     type: s.type, file: s.job ? null : s.file, job: s.job || null,
     input_gain_db: s.input_gain_db, output_gain_db: s.output_gain_db,
     ir_max_ms: s.type === "ir" ? s.ir_max_ms : null, ir_normalize: s.ir_normalize, enabled: s.enabled,
-  }));
+  };
+}
+
+function stagesPayload(nodes = state.chain) {
+  return nodes.map((n) => isSplit(n)
+    ? {
+        type: "split",
+        branches: n.branches.map((b) => ({
+          level_db: b.level_db, invert: b.invert, enabled: b.enabled,
+          stages: b.stages.map(stagePayload),
+        })),
+      }
+    : stagePayload(n));
 }
 
 // ------------------------------------------------------------ preview
@@ -704,7 +953,7 @@ function renderTrainNote() {
   const note = $("#train-note");
   const btn = $("#train");
   if (!note || !state.status) return;
-  const enabled = state.chain.filter((s) => s.enabled);
+  const enabled = signalPaths().flat();
   const missing = enabled.filter(stageMissing);
   let msg = "", cls = "note";
   if (!state.status.v3.valid) { msg = "Baixe o sinal de treino no topo da página para poder treinar."; cls = "note warn"; }

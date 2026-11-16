@@ -48,7 +48,7 @@ def test_list_files_describes_each_kind():
     assert d["nam"][0]["input_level_dbu"] == 12.0
     ir = {f["name"]: f for f in d["ir"]}
     assert ir["cab.wav"]["seconds"] == pytest.approx(64 / 48000, abs=1e-3)
-    assert {f["name"] for f in d["di"]} == {p.name for p in server.DEMO_DI_DIR.glob("*.wav")}
+    assert {f["name"] for f in d["di"] if f.get("builtin")} == {p.name for p in server.DEMO_DI_DIR.glob("*.wav")}
 
 
 def test_upload_rejects_wrong_extension_and_invalid_content():
@@ -176,9 +176,11 @@ def test_status_exposes_cab_hints():
 
 
 def test_preview_uses_only_builtin_test_audio():
-    names = [f["name"] for f in client.get("/api/files").json()["di"]]
+    names = [f["name"] for f in client.get("/api/files").json()["di"] if f.get("builtin")]
     assert server.BUILTIN_DI in names and len(names) == 3
     for f in client.get("/api/files").json()["di"]:
+        if not f.get("builtin"):
+            continue
         assert f["sample_rate"] == 48000 and f["seconds"] > 9
     # sem escolher: usa o padrão
     r = client.post("/api/preview", json={"seconds": 2, "stages": [{"type": "nam", "file": "drive.nam"}]})
@@ -188,9 +190,59 @@ def test_preview_uses_only_builtin_test_audio():
         assert client.get(f"/api/di-clip?di={n}&seconds=1").status_code == 200
     # nada fora da lista
     assert client.get("/api/di-clip?di=../../v3_0_0.wav&seconds=1").status_code == 404
-    assert client.get("/api/di-clip?di=outro.wav").status_code == 404
+    assert client.get("/api/di-clip?di=outro.wav").status_code == 404  # não existe
 
 
-def test_upload_of_custom_test_audio_is_not_accepted():
-    r = upload("di", "meu.wav", wav_bytes(np.zeros(4800, np.float32)))
-    assert r.status_code == 422
+SPLIT = {"type": "split", "branches": [
+    {"stages": [{"type": "nam", "file": "drive.nam"}], "level_db": -3},
+    {"stages": [{"type": "ir", "file": "cab.wav"}], "invert": True},
+]}
+
+
+def test_preview_with_split():
+    r = client.post("/api/preview", json={"seconds": 1, "stages": [SPLIT]})
+    assert r.status_code == 200, r.text
+
+
+def test_api_rejects_two_splits_and_empty_split():
+    r = client.post("/api/preview", json={"seconds": 1, "stages": [SPLIT, SPLIT]})
+    assert r.status_code == 400 and "Só uma divisão" in r.json()["detail"]
+    empty = {"type": "split", "branches": [{"stages": []}, {"stages": []}]}
+    r = client.post("/api/preview", json={"seconds": 1, "stages": [empty]})
+    assert r.status_code == 400 and "vazia" in r.json()["detail"]
+    nested = {"type": "split", "branches": [{"stages": [SPLIT]}, {"stages": []}]}
+    assert client.post("/api/preview", json={"seconds": 1, "stages": [nested]}).status_code == 422
+
+
+def test_job_with_split_snapshots_branch_files(monkeypatch):
+    monkeypatch.setattr(server, "_v3_status", lambda: {"valid": True})
+    monkeypatch.setattr(server, "_wake", threading.Event())
+    r = client.post("/api/jobs", json={"name": "Dual", "arch": "nano", "epochs": 1,
+                                       "stages": [{"type": "nam", "file": "drive.nam"}, SPLIT]})
+    assert r.status_code == 200, r.text
+    jid = r.json()["id"]
+    chain = json.loads((server.JOBS / jid / "chain.json").read_text())
+    split = chain["stages"][1]
+    assert split["type"] == "split" and len(split["branches"]) == 2
+    files = [chain["stages"][0]["file"]] + [st["file"] for b in split["branches"] for st in b["stages"]]
+    for f in files:
+        assert (server.JOBS / jid / f).is_file()
+    assert split["branches"][1]["invert"] is True
+    assert r.json()["has_split"] is True
+    client.post(f"/api/jobs/{jid}/cancel")
+    client.delete(f"/api/jobs/{jid}")
+
+
+def test_user_di_upload_is_back_and_listed_after_builtins():
+    x = (np.sin(2 * np.pi * 220 * np.arange(44100) / 44100) * 0.3).astype(np.float32)
+    builtin = server.BUILTIN_DI
+    r = upload("di", builtin, wav_bytes(x, sr=44100))  # mesmo nome de um embutido
+    assert r.status_code == 200 and r.json()["name"] != builtin
+    mine = r.json()["name"]
+    di = client.get("/api/files").json()["di"]
+    assert [f.get("builtin", False) for f in di][:3] == [True, True, True]
+    assert di[-1]["name"] == mine
+    r = client.post("/api/preview", json={"di": mine, "seconds": 0.5, "stages": [{"type": "ir", "file": "cab.wav"}]})
+    assert r.status_code == 200  # reamostrado de 44,1 para 48 kHz
+    assert client.delete(f"/api/files/di/{builtin}").status_code == 404  # embutido não apaga
+    assert client.delete(f"/api/files/di/{mine}").status_code == 200
