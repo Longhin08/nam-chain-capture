@@ -69,6 +69,33 @@ jobs:
           cat selftest.log
           grep -q "SELF-TEST OK" selftest.log
 
+      - name: Build portable version (no own .exe)
+        if: runner.os == 'Windows'
+        run: |
+          python packaging/make_portable.py --version "${{ steps.v.outputs.version }}" | tee portable.log
+          echo "PORTABLE_ROOT=$(grep '^PORTABLE_ROOT=' portable.log | cut -d= -f2-)" >> "$GITHUB_ENV"
+
+      - name: Check portable signatures (only signed Python executables)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $root = $env:PORTABLE_ROOT
+          foreach ($f in @("python\python.exe", "python\pythonw.exe")) {
+            $sig = Get-AuthenticodeSignature (Join-Path $root $f)
+            Write-Host "$f -> $($sig.Status) / $($sig.SignerCertificate.Subject)"
+            if ($sig.Status -ne "Valid") { throw "$f não está assinado" }
+          }
+          $own = Get-ChildItem $root -Recurse -Filter *.exe | Where-Object { $_.FullName -notlike "*\python\*" }
+          if ($own) { $own | ForEach-Object { Write-Host "exe fora do Python: $($_.FullName)" }; throw "há .exe além do python.exe/pythonw.exe oficiais" }
+
+      - name: Self-test of the portable version
+        if: runner.os == 'Windows'
+        run: |
+          export CHAINCAP_WORKSPACE="$RUNNER_TEMP/ws-portable"
+          "$PORTABLE_ROOT/python/python.exe" "$PORTABLE_ROOT/app/desktop_main.py" --self-test > selftest-portable.log 2>&1 || true
+          cat selftest-portable.log
+          grep -q "SELF-TEST OK" selftest-portable.log
+
       - name: Package (Windows installer)
         if: runner.os == 'Windows'
         run: |
@@ -91,6 +118,7 @@ jobs:
           path: |
             poc/dist/*.exe
             poc/dist/*.dmg
+            poc/dist/*.zip
           if-no-files-found: error
 
   release:

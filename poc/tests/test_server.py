@@ -246,3 +246,18 @@ def test_user_di_upload_is_back_and_listed_after_builtins():
     assert r.status_code == 200  # reamostrado de 44,1 para 48 kHz
     assert client.delete(f"/api/files/di/{builtin}").status_code == 404  # embutido não apaga
     assert client.delete(f"/api/files/di/{mine}").status_code == 200
+
+
+def test_ping_and_autostop_rules():
+    import desktop_main as D
+
+    assert client.post("/api/ping").status_code == 200
+    assert server.LAST_PING["t"] is not None
+    # sem ping ainda: espera o período de carência
+    assert not D.should_autostop(None, 0, D.GRACE_S - 1, False)
+    assert D.should_autostop(None, 0, D.GRACE_S + 1, False)
+    # aba fechada: para depois de AUTOSTOP_S sem ping
+    assert not D.should_autostop(100, 0, 100 + D.AUTOSTOP_S - 1, False)
+    assert D.should_autostop(100, 0, 100 + D.AUTOSTOP_S + 1, False)
+    # com treino rodando, nunca para sozinho
+    assert not D.should_autostop(100, 0, 10_000, True)

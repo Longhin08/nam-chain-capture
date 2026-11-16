@@ -1218,6 +1218,10 @@ async function boot() {
   setInterval(() => {
     if (state.jobs.some((j) => ["queued", "running", "canceling"].includes(j.status))) refreshJobs();
   }, 3000);
+  // Avisa o app que a página está aberta (no modo navegador ele se encerra sem isso).
+  const ping = () => api("/api/ping", { method: "POST" }).catch(() => {});
+  ping();
+  setInterval(ping, 10000);
 }
 
 boot();

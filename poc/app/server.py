@@ -414,6 +414,21 @@ def _gpu_name() -> Optional[str]:
     return m.get("device") if m else None
 
 
+# Modo navegador: a página avisa que está aberta; sem avisos, o app se encerra.
+LAST_PING = {"t": None}
+
+
+@app.post("/api/ping")
+def ping():
+    LAST_PING["t"] = time.time()
+    return {"ok": True}
+
+
+def jobs_busy() -> bool:
+    with _jobs_lock:
+        return _running["id"] is not None or bool(_queue)
+
+
 @app.get("/api/status")
 def status():
     return {

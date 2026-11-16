@@ -83,6 +83,21 @@ class DesktopApi:
         return {"saved": dest}
 
 
+# No modo navegador, a página manda /api/ping a cada 10 s. Sem ping por
+# AUTOSTOP_S (ou sem nenhum ping depois de GRACE_S), o app se encerra, a não
+# ser que haja treino rodando ou na fila.
+AUTOSTOP_S = 45
+GRACE_S = 180
+
+
+def should_autostop(last_ping, started, now, busy) -> bool:
+    if busy:
+        return False
+    if last_ping is None:
+        return now - started > GRACE_S
+    return now - last_ping > AUTOSTOP_S
+
+
 def run_app(ws: Path, browser: bool) -> None:
     os.environ["CHAINCAP_DESKTOP"] = "1"
     os.environ["CHAINCAP_AUTO_V3"] = "1"
@@ -121,10 +136,13 @@ def run_app(ws: Path, browser: bool) -> None:
         if str(e) != "--browser":
             print(f"Janela nativa indisponível ({e}); abrindo no navegador.", file=sys.stderr)
         webbrowser.open(url)
-        print(f"{APP_NAME} rodando em {url}\nFeche esta janela (ou Ctrl+C) para sair.")
+        print(f"{APP_NAME} rodando em {url}\nFeche a aba do navegador (ou Ctrl+C) para sair.")
+        started = time.time()
         try:
             while t.is_alive():
-                time.sleep(0.5)
+                time.sleep(1)
+                if should_autostop(server.LAST_PING["t"], started, time.time(), server.jobs_busy()):
+                    break
         except KeyboardInterrupt:
             pass
     finally:
