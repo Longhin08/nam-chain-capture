@@ -500,6 +500,56 @@ def _write_job(jid: str, **upd) -> dict:
     return job
 
 
+# Códigos do Windows quando uma política (Controle Inteligente de Aplicativos,
+# WDAC, AppLocker) impede um programa de rodar.
+_WIN_POLICY_BLOCKED = {4551, 1260}
+
+
+def _start_failure_message(e: OSError) -> str:
+    if getattr(e, "winerror", None) in _WIN_POLICY_BLOCKED:
+        return (
+            "O Windows bloqueou o processo de treino (Controle Inteligente de "
+            "Aplicativos ou política de segurança). Use a versão portátil do app, "
+            "que treina com o Python oficial assinado."
+        )
+    return f"Não foi possível iniciar o processo de treino: {e}"
+
+
+def _run_job(jid: str) -> None:
+    d = JOBS / jid
+    job = json.loads((d / "job.json").read_text())
+    if job["status"] != "queued":
+        return
+    cmd = worker_base() + [
+        "--worker", "run", str(d / "chain.json"),
+        "--input", str(V3), "--out", str(d / "out"),
+        "--epochs", str(job["epochs"]), "--arch", job["arch"],
+    ]
+    if job.get("gpu_usd_per_hour"):
+        cmd += ["--gpu-usd-per-hour", str(job["gpu_usd_per_hour"])]
+    _write_job(jid, status="running", started_at=time.time())
+    with open(d / "log.txt", "w") as log:
+        try:
+            proc = subprocess.Popen(
+                cmd, cwd=WS, stdout=log, stderr=subprocess.STDOUT,
+                env=dict(os.environ, CHAINCAP_LOG=str(d / "log.txt")),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except OSError as e:
+            msg = _start_failure_message(e)
+            log.write(msg + "\n")
+            _write_job(jid, status="failed", error=msg, finished_at=time.time())
+            return
+        with _jobs_lock:
+            _running.update(id=jid, proc=proc)
+        rc = proc.wait()
+    with _jobs_lock:
+        canceled = _read_job(jid)["status"] == "canceling"
+        _running.update(id=None, proc=None)
+    status = "canceled" if canceled else {0: "done", 2: "rejected"}.get(rc, "failed")
+    _write_job(jid, status=status, returncode=rc, finished_at=time.time())
+
+
 def _worker():
     while True:
         _wake.wait()
@@ -508,32 +558,15 @@ def _worker():
             if jid is None:
                 _wake.clear()
                 continue
-        d = JOBS / jid
-        job = json.loads((d / "job.json").read_text())
-        if job["status"] != "queued":
-            continue
-        cmd = worker_base() + [
-            "--worker", "run", str(d / "chain.json"),
-            "--input", str(V3), "--out", str(d / "out"),
-            "--epochs", str(job["epochs"]), "--arch", job["arch"],
-        ]
-        if job.get("gpu_usd_per_hour"):
-            cmd += ["--gpu-usd-per-hour", str(job["gpu_usd_per_hour"])]
-        _write_job(jid, status="running", started_at=time.time())
-        with open(d / "log.txt", "w") as log:
-            proc = subprocess.Popen(
-                cmd, cwd=WS, stdout=log, stderr=subprocess.STDOUT,
-                env=dict(os.environ, CHAINCAP_LOG=str(d / "log.txt")),
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
+        try:
+            _run_job(jid)
+        except Exception as e:  # nunca deixar a fila morrer por causa de um job
             with _jobs_lock:
-                _running.update(id=jid, proc=proc)
-            rc = proc.wait()
-        with _jobs_lock:
-            canceled = _read_job(jid)["status"] == "canceling"
-            _running.update(id=None, proc=None)
-        status = "canceled" if canceled else {0: "done", 2: "rejected"}.get(rc, "failed")
-        _write_job(jid, status=status, returncode=rc, finished_at=time.time())
+                _running.update(id=None, proc=None)
+            try:
+                _write_job(jid, status="failed", error=f"Erro interno: {e}", finished_at=time.time())
+            except Exception:
+                pass
 
 
 def _recover():

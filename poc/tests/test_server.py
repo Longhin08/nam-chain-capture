@@ -261,3 +261,38 @@ def test_ping_and_autostop_rules():
     assert D.should_autostop(100, 0, 100 + D.AUTOSTOP_S + 1, False)
     # com treino rodando, nunca para sozinho
     assert not D.should_autostop(100, 0, 10_000, True)
+
+
+def test_blocked_worker_marks_job_failed_and_queue_survives(monkeypatch):
+    """Se o Windows barrar o processo de treino, o job falha com mensagem clara
+    (em vez de ficar 'Treinando' para sempre) e a fila continua andando."""
+    monkeypatch.setattr(server, "_v3_status", lambda: {"valid": True})
+    monkeypatch.setattr(server, "_wake", threading.Event())  # sem worker real
+
+    def blocked(*a, **k):
+        e = OSError("An Application Control policy has blocked this file")
+        e.winerror = 4551
+        raise e
+
+    monkeypatch.setattr(server.subprocess, "Popen", blocked)
+    r = client.post("/api/jobs", json={"name": "Bloq", "arch": "nano", "epochs": 1,
+                                       "stages": [{"type": "nam", "file": "drive.nam"}]})
+    jid = r.json()["id"]
+    with server._jobs_lock:
+        server._queue.remove(jid)
+    server._run_job(jid)
+    job = client.get(f"/api/jobs/{jid}").json()
+    assert job["status"] == "failed"
+    assert "bloqueou" in job["error"] and "portátil" in job["error"]
+    assert server._running["id"] is None
+    # erro genérico ao iniciar também vira falha
+    monkeypatch.setattr(server.subprocess, "Popen", lambda *a, **k: (_ for _ in ()).throw(OSError("sem permissão")))
+    r = client.post("/api/jobs", json={"name": "X", "arch": "nano", "epochs": 1,
+                                       "stages": [{"type": "nam", "file": "drive.nam"}]})
+    jid2 = r.json()["id"]
+    with server._jobs_lock:
+        server._queue.remove(jid2)
+    server._run_job(jid2)
+    assert "sem permissão" in client.get(f"/api/jobs/{jid2}").json()["error"]
+    for j in (jid, jid2):
+        client.delete(f"/api/jobs/{j}")
