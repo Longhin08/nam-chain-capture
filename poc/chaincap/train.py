@@ -74,6 +74,35 @@ class TrainResult:
     seconds: float
 
 
+class ProgressFile(_pl.Callback):
+    """Grava `{"epoch", "max_epochs", "val_loss", "best_val_loss"}` em JSON a cada validação."""
+
+    def __init__(self, path: Union[str, Path]):
+        self.path = Path(path)
+        self.best: Optional[float] = None
+
+    def _write(self, trainer, val: Optional[float]) -> None:
+        if val is not None:
+            self.best = val if self.best is None else min(self.best, val)
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(_json.dumps({
+            "epoch": int(trainer.current_epoch),
+            "max_epochs": int(trainer.max_epochs or 0),
+            "val_loss": val,
+            "best_val_loss": self.best,
+        }))
+        tmp.replace(self.path)
+
+    def on_train_start(self, trainer, pl_module):
+        self._write(trainer, None)
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        if trainer.sanity_checking:
+            return
+        v = trainer.callback_metrics.get("val_loss")
+        self._write(trainer, None if v is None else float(v))
+
+
 def _device_config() -> Dict[str, Any]:
     if torch.cuda.is_available():
         return {"accelerator": "gpu", "devices": 1}
@@ -97,6 +126,7 @@ def train_chain_model(
     legacy_export: bool = True,
     skip_input_check: bool = False,
     trainer_kwargs: Optional[Dict[str, Any]] = None,
+    progress_path: Optional[Union[str, Path]] = None,
 ) -> TrainResult:
     """Treina e exporta `<basename>.nam` (e `<basename>.a1.nam` no formato 0.5.x)."""
     from time import time
@@ -144,9 +174,10 @@ def train_chain_model(
     _full._handshake_datasets(model, ds_train, ds_val)
 
     trainer = _pl.Trainer(
-        callbacks=_full._create_callbacks(learning_config),
+        callbacks=_full._create_callbacks(learning_config)
+        + ([ProgressFile(progress_path)] if progress_path else []),
         default_root_dir=str(outdir),
-        enable_progress_bar=True,
+        enable_progress_bar=False,
         **learning_config["trainer"],
     )
     with _filter_warnings("ignore", category=UserWarning):

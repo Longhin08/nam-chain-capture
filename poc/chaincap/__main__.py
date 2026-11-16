@@ -83,6 +83,7 @@ def cmd_run(args) -> int:
         metadata=metadata,
         trainer_kwargs={"fast_dev_run": True} if args.smoke else None,
         skip_input_check=args.skip_input_check,
+        progress_path=Path(args.out) / "progress.json",
     )
     report = {
         "name": name,

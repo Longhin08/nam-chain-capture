@@ -22,3 +22,4 @@ lightning_logs/
 .vscode/
 node_modules/
 data/
+poc/workspace/

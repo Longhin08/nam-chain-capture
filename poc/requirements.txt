@@ -6,3 +6,8 @@ numpy
 # Em máquina sem GPU, instale antes o torch CPU:
 #   pip install --index-url https://download.pytorch.org/whl/cpu torch
 pytest
+# Interface local (app/)
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9
+httpx  # TestClient nos testes

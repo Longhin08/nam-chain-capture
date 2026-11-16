@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chain Capture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <h1 class="brand">Chain Capture</h1>
+  <div class="status" id="status" aria-live="polite"></div>
+</header>
+
+<main class="layout">
+  <aside class="library" aria-labelledby="lib-title">
+    <h2 id="lib-title">Seus arquivos</h2>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-kind="nam" aria-selected="true">Capturas</button>
+      <button role="tab" data-kind="ir" aria-selected="false">IRs</button>
+      <button role="tab" data-kind="di" aria-selected="false">DIs</button>
+    </div>
+    <label class="drop" id="drop">
+      <input type="file" id="file-input" multiple hidden>
+      <span id="drop-text">Solte arquivos .nam aqui ou clique para escolher</span>
+    </label>
+    <ul class="files" id="files" aria-live="polite"></ul>
+  </aside>
+
+  <section class="workbench">
+    <div class="board-head">
+      <h2>Cadeia</h2>
+      <p class="hint" id="board-hint">O sinal entra pela esquerda e passa pelos estágios na ordem. Arraste para reordenar.</p>
+      <button class="ghost" id="clear-chain" type="button">Limpar cadeia</button>
+    </div>
+    <div class="board" id="board">
+      <div class="jack" aria-hidden="true"><span>Guitarra</span></div>
+      <ol class="chain" id="chain" aria-label="Estágios da cadeia"></ol>
+      <div class="jack out" aria-hidden="true"><span>Saída</span></div>
+    </div>
+
+    <div class="panels">
+      <section class="panel" aria-labelledby="listen-title">
+        <h2 id="listen-title">Ouvir antes de treinar</h2>
+        <div class="row">
+          <label class="field">
+            <span>Sinal de entrada</span>
+            <select id="di-select"></select>
+          </label>
+          <label class="field narrow">
+            <span>Duração</span>
+            <select id="di-seconds">
+              <option value="8">8 s</option>
+              <option value="15" selected>15 s</option>
+              <option value="30">30 s</option>
+            </select>
+          </label>
+        </div>
+        <div class="row buttons">
+          <button type="button" id="play-di" class="secondary">Ouvir DI limpo</button>
+          <button type="button" id="play-chain" class="primary">Ouvir cadeia</button>
+        </div>
+        <audio id="player" controls preload="none"></audio>
+        <p class="note" id="listen-note">O volume é normalizado para comparar; o pico real da cadeia aparece aqui.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="train-title">
+        <h2 id="train-title">Treinar captura única</h2>
+        <label class="field">
+          <span>Nome</span>
+          <input id="job-name" value="Minha cadeia" maxlength="80">
+        </label>
+        <fieldset class="arch" id="arch">
+          <legend>Tamanho do modelo</legend>
+        </fieldset>
+        <div class="row">
+          <label class="field narrow">
+            <span>Épocas</span>
+            <input id="epochs" type="number" min="1" max="1000" value="100">
+          </label>
+          <label class="field narrow">
+            <span>GPU (US$/h)</span>
+            <input id="gpu-price" type="number" min="0" step="0.01" placeholder="opcional">
+          </label>
+        </div>
+        <button type="button" id="train" class="primary wide">Treinar captura</button>
+        <p class="note" id="train-note"></p>
+      </section>
+    </div>
+
+    <section class="jobs-wrap" aria-labelledby="jobs-title">
+      <h2 id="jobs-title">Treinos</h2>
+      <ul class="jobs" id="jobs"></ul>
+    </section>
+  </section>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<template id="pedal-tpl">
+  <li class="pedal" draggable="true">
+    <div class="enclosure">
+      <div class="pedal-top">
+        <span class="led" aria-hidden="true"></span>
+        <span class="kind"></span>
+        <button type="button" class="icon remove" aria-label="Remover estágio">×</button>
+      </div>
+      <p class="pedal-name"></p>
+      <p class="pedal-meta"></p>
+      <div class="knobs"></div>
+      <div class="ir-opts" hidden>
+        <label class="check"><input type="checkbox" class="trunc-on"> Cortar em</label>
+        <input type="number" class="trunc-ms" min="1" max="2000" step="1" value="20" aria-label="Milissegundos do corte">
+        <span>ms</span>
+        <label class="check"><input type="checkbox" class="norm" checked> Normalizar</label>
+      </div>
+      <div class="pedal-foot">
+        <button type="button" class="icon move-left" aria-label="Mover para antes">‹</button>
+        <button type="button" class="footswitch" aria-pressed="true" aria-label="Ligar ou desligar (bypass)"></button>
+        <button type="button" class="icon move-right" aria-label="Mover para depois">›</button>
+      </div>
+    </div>
+  </li>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>
