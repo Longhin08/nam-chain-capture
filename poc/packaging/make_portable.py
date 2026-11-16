@@ -39,7 +39,7 @@ PACKAGES = [
 ]
 
 LAUNCHER = r"""@echo off
-rem Abre o NAM Chain Capture no navegador padrão, com o Python oficial desta pasta.
+rem Abre o NAM Chain Capture no navegador padrao, com o Python oficial desta pasta.
 start "" "%~dp0python\pythonw.exe" "%~dp0app\desktop_main.py" --browser
 """
 
