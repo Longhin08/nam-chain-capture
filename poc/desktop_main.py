@@ -63,18 +63,19 @@ class DesktopApi:
     """Funções nativas expostas ao JavaScript (window.pywebview.api)."""
 
     def __init__(self, workspace: Path):
-        self.ws = workspace
-        self.window = None
+        # Atributos com "_" não são expostos ao JavaScript pelo pywebview.
+        self._ws = workspace
+        self._window = None
 
     def save_job_file(self, job_id: str, name: str):
         import webview
 
         if not re.fullmatch(r"[0-9a-f]{12}", job_id or "") or name != Path(name).name:
             return {"error": "Arquivo inválido"}
-        src = self.ws / "jobs" / job_id / "out" / name
+        src = self._ws / "jobs" / job_id / "out" / name
         if not src.is_file():
             return {"error": "Arquivo não encontrado"}
-        res = self.window.create_file_dialog(webview.FileDialog.SAVE, save_filename=name)
+        res = self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=name)
         if not res:
             return {"canceled": True}
         dest = res if isinstance(res, str) else res[0]
@@ -109,7 +110,7 @@ def run_app(ws: Path, browser: bool) -> None:
 
         webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True
         api = DesktopApi(ws)
-        api.window = webview.create_window(
+        api._window = webview.create_window(
             APP_NAME, url, js_api=api, width=1440, height=920, min_size=(960, 640),
             background_color="#1d2737",
         )

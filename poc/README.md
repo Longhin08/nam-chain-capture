@@ -62,6 +62,18 @@ O app é o mesmo servidor + interface dentro de uma janela nativa (pywebview: We
 
 Rodar sem empacotar: `cd poc && ../.venv/bin/python desktop_main.py` (precisa de `pip install -r requirements-desktop.txt`).
 
+**Linux** (não tem instalador; roda a partir do código). A janela nativa usa GTK + WebKit2GTK:
+
+```bash
+sudo apt install gir1.2-webkit2-4.1 python3-gi      # geralmente já vem no Ubuntu/Mint
+python3 -m venv .venv --system-site-packages         # enxerga o PyGObject do sistema
+.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
+.venv/bin/pip install -r poc/requirements.txt -r poc/requirements-desktop.txt
+cd poc && ../.venv/bin/python desktop_main.py
+```
+
+Sem GTK/WebKit, o app abre a interface no navegador padrão. Os dados ficam em `~/.local/share/nam-chain-capture`.
+
 Gerar os instaladores:
 - **Pelo CI (recomendado):** o workflow [`.github/workflows/desktop.yml`](../.github/workflows/desktop.yml) compila no Windows e no macOS (Apple Silicon), roda os testes e o `--self-test` dentro do app empacotado e sobe o `Setup.exe` e o `.dmg` como artefatos. Um push de tag `v*` (ex.: `git tag v0.1.0 && git push --tags`) cria um **rascunho** de Release com os dois arquivos; você revisa e publica.
 - **Local:** `cd poc && pyinstaller packaging/nam_chain_capture.spec --noconfirm`. No Windows, depois `iscc /DAppVersion=0.1.0 packaging\windows.iss`.
