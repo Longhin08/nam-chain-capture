@@ -162,6 +162,9 @@ def _describe(kind: str, p: Path) -> dict:
                 title=md.get("name"),
                 modeled_by=md.get("modeled_by"),
                 gear_type=md.get("gear_type"),
+                gear_make=md.get("gear_make"),
+                gear_model=md.get("gear_model"),
+                tone_type=md.get("tone_type"),
                 input_level_dbu=md.get("input_level_dbu"),
                 weights=len(d.get("weights") or []),
             )

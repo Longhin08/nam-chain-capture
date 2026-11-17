@@ -148,30 +148,83 @@ button, input, select { font: inherit; color: inherit; }
 .grille-area { display: none; }
 
 /* ================= PEDAL =================
-   gabinete de metal esmaltado, knobs em cima, nome serigrafado,
-   footswitch embaixo e conectores nas laterais */
+   formato compacto: corpo de metal esmaltado com as quinas de cima
+   chanfradas, painel preto com os knobs e o LED em cima, nome grande
+   alinhado à direita no meio e, embaixo, uma tampa-pedal larga com
+   borracha preta (clicar em qualquer ponto liga/desliga) */
 .pedal[data-form="pedal"] .enclosure {
   --ink: #17181b;
-  width: 168px; min-height: 262px; padding: 10px 12px 12px; color: var(--ink);
-  border-radius: 12px;
-  background: linear-gradient(160deg, color-mix(in srgb, var(--enamel, #e3b23c) 82%, white), var(--enamel, #e3b23c) 40%, color-mix(in srgb, var(--enamel, #e3b23c) 78%, black));
-  box-shadow: 0 10px 16px rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .35), inset 0 -3px 0 rgba(0, 0, 0, .18);
+  --enamel-c: var(--enamel, #e3b23c);
+  width: 196px; min-height: 300px; padding: 8px 10px 20px; gap: 0; color: var(--ink);
+  isolation: isolate; filter: drop-shadow(0 8px 8px rgba(0, 0, 0, .45));
 }
 .pedal[data-form="pedal"].light-ink .enclosure { --ink: #f4f4f4; }
-.pedal[data-form="pedal"] .enclosure::before,
-.pedal[data-form="pedal"] .enclosure::after { /* conectores de entrada e saída */
-  content: ""; position: absolute; top: 34%; width: 7px; height: 22px; border-radius: 2px;
-  background: linear-gradient(180deg, #c9cdd2, #6c7179);
+/* corpo esmaltado com as quinas de cima chanfradas */
+.pedal[data-form="pedal"] .enclosure::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: 6px 6px 10px 10px;
+  clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%, 0 12px);
+  background: linear-gradient(175deg, color-mix(in srgb, var(--enamel-c) 85%, white), var(--enamel-c) 30%, color-mix(in srgb, var(--enamel-c) 85%, black));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), inset 0 -3px 0 rgba(0, 0, 0, .25);
 }
-.pedal[data-form="pedal"] .enclosure::before { left: -7px; }
-.pedal[data-form="pedal"] .enclosure::after { right: -7px; }
-.pedal[data-form="pedal"] .face { flex: 1; gap: 8px; }
-.pedal[data-form="pedal"] .knobs { order: -1; padding: 2px 0 4px; }
+/* conectores de entrada (esquerda) e saída (direita, pela sombra) */
+.pedal[data-form="pedal"] .enclosure::after {
+  content: ""; position: absolute; top: 46%; left: -8px; width: 8px; height: 24px; border-radius: 2px; z-index: -2;
+  background: #9ea3aa; box-shadow: 204px 0 0 #9ea3aa;
+}
+
+/* linha de cima: tipo | LED | remover */
+.pedal[data-form="pedal"] .pedal-top { display: grid; grid-template-columns: 1fr auto 1fr; padding: 0 2px 4px; }
+.pedal[data-form="pedal"] .kind { font-size: 10px; }
+.pedal[data-form="pedal"] .led { order: 0; grid-column: 2; grid-row: 1; }
+.pedal[data-form="pedal"] .remove { grid-column: 3; grid-row: 1; justify-self: end; width: 22px; height: 22px; font-size: 16px; }
+.pedal[data-form="pedal"] .kind { grid-column: 1; grid-row: 1; }
+
+.pedal[data-form="pedal"] .face { flex: 1; gap: 2px; }
+/* painel preto dos controles, de borda a borda */
+.pedal[data-form="pedal"] .knobs {
+  order: -1; margin: 0 -10px 10px; padding: 8px 10px 6px; justify-content: space-evenly;
+  background: linear-gradient(180deg, #202125, #121315); color: #eef0f2;
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .08), 0 1px 0 rgba(0, 0, 0, .35);
+}
+.pedal[data-form="pedal"] .knob-wrap { gap: 3px; }
+.pedal[data-form="pedal"] .knob-label { order: -1; font-size: 11px; font-weight: 700; }
+.pedal[data-form="pedal"] .knob-value { font-size: 10px; opacity: .7; }
+.pedal[data-form="pedal"] .knob {
+  width: 40px; height: 40px;
+  background: radial-gradient(circle at 42% 34%, color-mix(in srgb, var(--enamel-c) 70%, white) 0 12%, var(--enamel-c) 45%, color-mix(in srgb, var(--enamel-c) 55%, black) 72%);
+  box-shadow: 0 0 0 3px #0c0d0e, 0 3px 4px rgba(0, 0, 0, .6);
+}
+.pedal[data-form="pedal"] .knob::after { height: 11px; top: 3px; transform-origin: 50% 17px; background: var(--ink); }
 .pedal[data-form="pedal"] .pedal-name {
-  text-align: center; font-size: 16px; font-variation-settings: "wdth" 120; letter-spacing: .01em;
-  margin-top: auto; padding: 4px 2px; border-top: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  text-align: right; font-size: 21px; line-height: 1.05; font-variation-settings: "wdth" 110; letter-spacing: -.01em;
+  margin-top: auto; padding: 0 2px;
 }
-.pedal[data-form="pedal"] .pedal-meta { text-align: center; }
+.pedal[data-form="pedal"] .pedal-meta { text-align: right; font-size: 10.5px; font-weight: 700; padding: 0 2px 8px; }
+
+/* tampa-pedal com borracha preta; setas de mover numa faixa embaixo */
+.pedal[data-form="pedal"] .pedal-foot {
+  position: relative; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 16px; align-items: center; row-gap: 2px;
+  margin: 0 -2px; padding: 0;
+}
+.pedal[data-form="pedal"] .pedal-foot .icon { grid-row: 2; width: 26px; height: 16px; font-size: 15px; color: var(--ink); }
+.pedal[data-form="pedal"] .move-left { justify-self: start; }
+.pedal[data-form="pedal"] .move-right { grid-column: 2; justify-self: end; }
+.pedal[data-form="pedal"] .footswitch {
+  grid-column: 1 / -1; grid-row: 1; width: 100%; height: 92px; border-radius: 6px; border: 0; cursor: pointer;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, .1), transparent 60%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .025) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #2a2b2f, #141517);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--enamel-c) 70%, black), 0 4px 0 rgba(0, 0, 0, .5), inset 0 1px 0 rgba(255, 255, 255, .12);
+}
+.pedal[data-form="pedal"] .footswitch:active { transform: translateY(2px); box-shadow: 0 0 0 2px color-mix(in srgb, var(--enamel-c) 70%, black), 0 2px 0 rgba(0, 0, 0, .5); }
+/* parafuso de abrir a tampa, embaixo */
+.pedal[data-form="pedal"] .pedal-foot::after {
+  content: ""; position: absolute; left: 50%; bottom: -18px; width: 22px; height: 10px; margin-left: -11px;
+  border-radius: 3px 3px 2px 2px; background: linear-gradient(180deg, #2a2b2f, #0c0d0e);
+}
+
+/* footswitch redondo (base) */
 .footswitch {
   width: 42px; height: 42px; border-radius: 50%; cursor: pointer; border: 3px solid #868c94;
   background: radial-gradient(circle at 40% 35%, #f3f4f6, #9aa1ab 70%);
@@ -182,17 +235,23 @@ button, input, select { font: inherit; color: inherit; }
 /* ================= AMPLIFICADOR (cabeçote) =================
    caixa de tolex preto com alça, grade de pano em cima e painel de
    controles embaixo, com lâmpada piloto e chave liga/desliga */
-.pedal:not([data-form="pedal"]) .enclosure {
-  color: #eceef1; padding: 8px 10px 10px; border-radius: 9px;
-  background:
+.head-box, .cab-box { display: contents; }
+.pedal:not([data-form="pedal"]) {
+  --tolex:
     radial-gradient(circle at 30% 30%, rgba(255, 255, 255, .06) 0 .8px, transparent 1.3px) 0 0 / 3px 3px,
     linear-gradient(180deg, #2b2d31, #121315);
-  box-shadow: 0 10px 18px rgba(0, 0, 0, .55), inset 0 0 0 2px #3a3d42, inset 0 0 0 4px #0b0c0d;
+  --tolex-edge: inset 0 0 0 2px #3a3d42, inset 0 0 0 4px #0b0c0d;
+  --handle: linear-gradient(180deg, #34373c, #101113);
+}
+.pedal:not([data-form="pedal"]) .enclosure {
+  color: #eceef1; padding: 8px 10px 10px; border-radius: 9px;
+  background: var(--tolex);
+  box-shadow: 0 10px 18px rgba(0, 0, 0, .55), var(--tolex-edge);
 }
 .pedal[data-form="head"] .enclosure, .pedal[data-form="combo"] .enclosure { margin-top: 14px; }
 .pedal[data-form="head"] .enclosure::before, .pedal[data-form="combo"] .enclosure::before { /* alça */
   content: ""; position: absolute; left: 50%; top: -12px; width: 84px; height: 12px; margin-left: -42px;
-  border-radius: 8px 8px 0 0; background: linear-gradient(180deg, #34373c, #101113);
+  border-radius: 8px 8px 0 0; background: var(--handle);
 }
 .pedal[data-form="head"] .enclosure { width: 300px; }
 .pedal:not([data-form="pedal"]) .kind { opacity: .8; }
@@ -242,10 +301,37 @@ button, input, select { font: inherit; color: inherit; }
 }
 .pedal:not([data-form="pedal"]):not(.bypassed) .led { background: radial-gradient(circle at 38% 32%, #ffd0c4 0 12%, var(--lamp) 34%, #7a0d06 80%); box-shadow: 0 0 9px var(--lamp); }
 
-/* ================= COMBO (amp + caixa) ================= */
-.pedal[data-form="combo"] .enclosure { width: 270px; }
-.pedal[data-form="combo"] .grille-area { display: grid; place-items: center; height: 130px; order: 3; }
-.pedal[data-form="combo"] .pedal-foot { order: 4; }
+/* ================= AMP + CAIXA: cabeçote em cima do gabinete =================
+   o cabeçote (knobs, lâmpada, chave) fica por cima de uma caixa mais larga */
+.pedal[data-form="combo"] .enclosure {
+  display: flex; flex-direction: column; align-items: center; gap: 0;
+  padding: 0; margin-top: 14px; background: none; box-shadow: none; border-radius: 0;
+}
+.pedal[data-form="combo"] .enclosure::before { content: none; }
+.pedal[data-form="combo"] .head-box {
+  position: relative; z-index: 1; display: flex; flex-direction: column; gap: 6px;
+  width: 240px; padding: 8px 10px 8px; border-radius: 8px 8px 4px 4px;
+  background: var(--tolex); box-shadow: 0 6px 10px rgba(0, 0, 0, .5), var(--tolex-edge);
+}
+.pedal[data-form="combo"] .head-box::before { /* alça */
+  content: ""; position: absolute; left: 50%; top: -12px; width: 84px; height: 12px; margin-left: -42px;
+  border-radius: 8px 8px 0 0; background: var(--handle);
+}
+.pedal[data-form="combo"] .cab-box {
+  display: block; width: 310px; margin-top: 3px; padding: 12px; border-radius: 6px 6px 9px 9px;
+  background: var(--tolex); box-shadow: 0 10px 18px rgba(0, 0, 0, .55), var(--tolex-edge);
+}
+.pedal[data-form="combo"] .grille-area { display: block; height: 200px; }
+.pedal[data-form="combo"] .speaker { display: none; }
+/* 4 alto-falantes atrás da tela (2 no estilo clean) */
+.pedal[data-form="combo"] .grille-area::before {
+  content: ""; position: absolute; inset: 8px; opacity: .22;
+  background:
+    radial-gradient(circle at 25% 27%, #4a4844 0 7px, #161514 8px 28px, #33312e 29px 33px, transparent 34px),
+    radial-gradient(circle at 75% 27%, #4a4844 0 7px, #161514 8px 28px, #33312e 29px 33px, transparent 34px),
+    radial-gradient(circle at 25% 73%, #4a4844 0 7px, #161514 8px 28px, #33312e 29px 33px, transparent 34px),
+    radial-gradient(circle at 75% 73%, #4a4844 0 7px, #161514 8px 28px, #33312e 29px 33px, transparent 34px);
+}
 .pedal[data-trained] .face { box-shadow: inset 5px 0 0 var(--trained), inset 0 1px 0 #fff, 0 0 0 1px #0b0c0d; }
 
 /* ================= GABINETE (IR): grade com quatro alto-falantes ================= */
@@ -354,3 +440,121 @@ audio { width: 100%; }
 .pedal[data-form="head"] .grille-area { order: 1; }
 .pedal[data-form="head"] .face { order: 2; }
 .pedal[data-form="head"] .pedal-foot { order: 3; }
+
+/* ================= ESTILOS DE AMPLIFICADOR POR GANHO =================
+   data-amp vem do tone_type do .nam ou do nome do arquivo (app.js: ampStyle) */
+
+/* --- high gain: tudo preto, painel de metal escovado escuro, tela preta --- */
+.pedal[data-amp="high"] {
+  --tolex:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, .05) 0 .8px, transparent 1.3px) 0 0 / 3px 3px,
+    linear-gradient(180deg, #1a1b1d, #08090a);
+  --tolex-edge: inset 0 0 0 2px #2a2c30, inset 0 0 0 4px #050505;
+  --handle: linear-gradient(180deg, #1c1d20, #060607);
+}
+.pedal[data-amp="high"] .face {
+  color: #e9ebee;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #2b2d31, #151619);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .15), 0 0 0 1px #000;
+}
+.pedal[data-amp="high"] .grille-area {
+  background-color: #0b0b0c;
+  background-image: radial-gradient(circle, #1f2023 0 1px, transparent 1.4px);
+  background-size: 4px 4px;
+  box-shadow: inset 0 0 0 2px #3a3c40, inset 0 4px 10px rgba(0, 0, 0, .7);
+}
+.pedal[data-amp="high"] .knob {
+  background: radial-gradient(circle at 42% 34%, #f2f3f5 0 10%, #9ea4ad 34%, #4b5058 70%);
+  box-shadow: 0 0 0 2px #050505, 0 3px 5px rgba(0, 0, 0, .6);
+}
+.pedal[data-amp="high"] .knob::after { background: #111; }
+
+/* --- crunch: tolex preto, painel dourado escovado, tela trançada escura --- */
+.pedal[data-amp="crunch"] .face {
+  color: #1a1408;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .12) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #f1d58a, #c99d3e 55%, #a57b28);
+  box-shadow: inset 0 1px 0 #fff3c9, 0 0 0 1px #0b0c0d;
+}
+.pedal[data-amp="crunch"] .grille-area {
+  background-color: #2a2620;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(220, 205, 170, .16) 0 2px, transparent 2px 5px),
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, .45) 0 2px, transparent 2px 5px);
+  box-shadow: inset 0 0 0 2px #e6e0d2, inset 0 4px 10px rgba(0, 0, 0, .55);
+}
+.pedal[data-amp="crunch"] .knob {
+  background: radial-gradient(circle at 50% 50%, #f3dc95 0 26%, #a37a2a 30%, #1a1b1e 34%, #0e0f11 70%);
+  box-shadow: 0 3px 5px rgba(0, 0, 0, .5);
+}
+.pedal[data-amp="crunch"] .knob::after { background: #f6e7b8; }
+/* variante prata (pedida pelo nome: silver, jubilee...) */
+.pedal[data-amp="crunch"][data-silver] {
+  --tolex:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, .22) 0 .8px, transparent 1.3px) 0 0 / 3px 3px,
+    linear-gradient(180deg, #c9ccd1, #8d9198);
+  --tolex-edge: inset 0 0 0 2px #e4e6ea, inset 0 0 0 4px #5d6168;
+}
+.pedal[data-amp="crunch"][data-silver] .kind,
+.pedal[data-amp="crunch"][data-silver] .remove,
+.pedal[data-amp="crunch"][data-silver] .move-left,
+.pedal[data-amp="crunch"][data-silver] .move-right { color: #17181b; }
+.pedal[data-amp="crunch"][data-silver] .face {
+  color: #17181b;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .25) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #eef0f3, #b5b9c0 60%, #979ca4);
+  box-shadow: inset 0 1px 0 #fff, 0 0 0 1px #4a4e55;
+}
+.pedal[data-amp="crunch"][data-silver] .knob {
+  background: radial-gradient(circle at 50% 50%, #e9ebee 0 26%, #8b9097 30%, #1a1b1e 34%, #0e0f11 70%);
+}
+.pedal[data-amp="crunch"][data-silver] .knob::after { background: #f2f3f5; }
+
+/* --- clean (estilo combo clean americano dos anos 60): tolex preto, painel
+   preto com friso de alumínio em cima e embaixo, knobs pretos com saia
+   prateada numerada, tela prateada de trama fina com friso branco e dois
+   alto-falantes --- */
+.pedal[data-amp="clean"] {
+  --tolex:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, .035) 0 1px, transparent 1px 3px),
+    linear-gradient(180deg, #232427, #101113);
+}
+.pedal[data-amp="clean"] .face {
+  color: #f4f5f7;
+  background: linear-gradient(180deg, #19191b, #0c0c0d);
+  box-shadow:
+    inset 0 3px 0 #cfd3d8, inset 0 4px 0 #6d7279,
+    inset 0 -3px 0 #cfd3d8, inset 0 -4px 0 #6d7279, 0 0 0 1px #000;
+  padding: 10px 10px;
+}
+.pedal[data-amp="clean"] .pedal-name { font-style: italic; }
+.pedal[data-amp="clean"] .grille-area {
+  background-color: #c4c8cd;
+  background-image:
+    repeating-linear-gradient(90deg, rgba(25, 32, 48, .28) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(0deg, rgba(25, 32, 48, .22) 0 1px, transparent 1px 3px),
+    radial-gradient(circle, rgba(255, 255, 255, .7) 0 .5px, transparent 1px),
+    linear-gradient(180deg, #d6d9dd, #aeb2b8);
+  background-size: auto, auto, 5px 5px, auto;
+  box-shadow: inset 0 0 0 2px #f4f4f2, inset 0 0 0 3px #1a1b1d, inset 0 6px 12px rgba(0, 0, 0, .3);
+}
+.pedal[data-amp="clean"] .speaker { opacity: .12; }
+.pedal[data-form="combo"][data-amp="clean"] .grille-area { height: 170px; }
+.pedal[data-form="combo"][data-amp="clean"] .grille-area::before {
+  opacity: .12;
+  background:
+    radial-gradient(circle at 27% 50%, #2a2c30 0 12px, #0e0f10 13px 54px, #2a2c30 55px 60px, transparent 61px),
+    radial-gradient(circle at 73% 50%, #2a2c30 0 12px, #0e0f10 13px 54px, #2a2c30 55px 60px, transparent 61px);
+}
+.pedal[data-amp="clean"] .knob { /* tampa preta + saia prateada com marcas */
+  background:
+    radial-gradient(circle, #2a2b2e 0 30%, #0d0d0e 44%, transparent 46%),
+    repeating-conic-gradient(from -135deg, #1b1c1f 0 2deg, transparent 2deg 27deg),
+    radial-gradient(circle, #e9ebee 0 58%, #8f949b 70%);
+  box-shadow: 0 0 0 1px #111, 0 3px 5px rgba(0, 0, 0, .55);
+}
+.pedal[data-amp="clean"] .knob::after { background: #f5f5f5; height: 9px; top: 6px; transform-origin: 50% 13px; }

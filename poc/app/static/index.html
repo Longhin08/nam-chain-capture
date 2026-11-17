@@ -107,6 +107,7 @@
 <template id="pedal-tpl">
   <li class="pedal" draggable="true">
     <div class="enclosure">
+      <div class="head-box">
       <div class="pedal-top">
         <span class="led" aria-hidden="true"></span>
         <span class="kind"></span>
@@ -123,12 +124,13 @@
           <label class="check"><input type="checkbox" class="norm" checked> Normalizar</label>
         </div>
       </div>
-      <div class="grille-area" aria-hidden="true"><span class="speaker"></span></div>
       <div class="pedal-foot">
         <button type="button" class="icon move-left" aria-label="Mover para antes">‹</button>
         <button type="button" class="footswitch" aria-pressed="true" aria-label="Ligar ou desligar (bypass)"></button>
         <button type="button" class="icon move-right" aria-label="Mover para depois">›</button>
       </div>
+      </div>
+      <div class="cab-box"><div class="grille-area" aria-hidden="true"><span class="speaker"></span></div></div>
     </div>
   </li>
 </template>

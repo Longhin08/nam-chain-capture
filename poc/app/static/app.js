@@ -69,6 +69,34 @@ function stageForm(st) {
   const info = fileInfo("nam", st.file);
   return (info && GEAR_FORM[info.gear_type]) || ["pedal", "Captura NAM"];
 }
+// Visual do amplificador pelo tipo de ganho: o tone_type dos metadados do
+// NAM quando existe; se não, palavras no nome/modelo do arquivo.
+//   high   -> preto total (estilo high gain moderno)
+//   crunch -> painel dourado (estilo britânico); "silver" quando o nome pede
+//   clean  -> painel preto e tela prateada (estilo combo clean americano)
+// Primeiro palavras de som (clean/crunch/high gain), depois modelos conhecidos:
+// "Mesa clean" é clean, "JCM800 lead" é high.
+const AMP_WORDS = [
+  ["clean", /clean|limpo/i],
+  ["high", /hi(gh)?[\s_-]?gain|\blead\b|metal|djent/i],
+  ["crunch", /crunch|\bdrive\b|rhythm|\bod\b/i],
+  ["high", /recto|rectifier|5150|6505|uber|diezel|engl|friedman|bogner|revv|mesa|mark\s?(iv|v|ii)|\bslo\b|\bevh\b/i],
+  ["crunch", /jcm|plexi|jubilee|2555|\bjtm|\bac\s?30|\bvox\b|marshall|\b800\b|\b900\b|orange/i],
+  ["clean", /\btwin\b|deluxe|princeton|bassman|super\s?reverb|jazz|\bjc[\s-]?120|fender|blackface|vibro|dumble/i],
+];
+const TONE_TO_AMP = { clean: "clean", crunch: "crunch", overdrive: "crunch", hi_gain: "high", fuzz: "high" };
+function ampStyle(st) {
+  const info = st.job ? null : fileInfo("nam", st.file);
+  if (info && TONE_TO_AMP[info.tone_type]) return TONE_TO_AMP[info.tone_type];
+  const text = [st.label, st.file, info && info.title, info && info.gear_make, info && info.gear_model].filter(Boolean).join(" ");
+  for (const [style, re] of AMP_WORDS) if (re.test(text)) return style;
+  return "";
+}
+function ampSilver(st) {
+  const info = st.job ? null : fileInfo("nam", st.file);
+  return /silver|jubilee|2555/i.test([st.label, st.file, info && info.title, info && info.gear_model].filter(Boolean).join(" "));
+}
+
 const DROP_TEXT = {
   nam: "Solte arquivos .nam aqui ou clique para escolher",
   ir: "Solte IRs .wav aqui ou clique para escolher",
@@ -551,6 +579,11 @@ function makePedal(st, arr, i) {
   const info = st.job ? null : fileInfo(st.type, st.file);
   const [form, formLabel] = stageForm(st);
   li.dataset.form = form;
+  if (form === "head" || form === "combo") {
+    const amp = ampStyle(st);
+    if (amp) li.dataset.amp = amp;
+    if (amp === "crunch" && ampSilver(st)) li.dataset.silver = "";
+  }
   if (form === "pedal") {
     const [color, lightInk] = enamelFor(st.file || st.label || "");
     li.style.setProperty("--enamel", color);
