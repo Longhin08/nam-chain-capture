@@ -87,3 +87,55 @@ def test_cli_run_smoke_with_split(tmp_path):
     assert split["type"] == "split" and len(split["branches"]) == 2
     assert split["branches"][1]["invert"] is True
     assert (out / "chain.a1.nam").is_file()
+
+
+def _synthetic_input(tmp_path, seed=2):
+    rng = np.random.default_rng(seed)
+    x = (rng.standard_normal(1_200_000) * 0.1).astype(np.float32)
+    x[480_000 - 48_000 : 480_000] = 0
+    x[-432_000 - 48_000 : -432_000] = 0
+    inp = tmp_path / "input.wav"
+    write_wav_24(inp, x)
+    return inp
+
+
+def test_cli_run_smoke_a2_matches_tone3000_format(tmp_path):
+    """A2: mesmo formato das capturas atuais do Tone3000 (aceito pela M-VAVE Pocket Amp)."""
+    from chaincap.chain import load_nam_model, nam_infer
+
+    inp = _synthetic_input(tmp_path)
+    chain = {"name": "Meu A2", "arch": "a2",
+             "stages": [{"type": "nam", "file": str(FIXTURES / "legacy_nano.nam")}]}
+    (tmp_path / "chain.json").write_text(json.dumps(chain))
+    out = tmp_path / "out"
+    rc = main(["run", str(tmp_path / "chain.json"), "--input", str(inp), "--out", str(out),
+               "--smoke", "--epochs", "1", "--skip-input-check"])
+    assert rc == 0
+    d = json.loads((out / "chain.nam").read_text())
+    assert d["version"] == "0.7.0" and d["architecture"] == "SlimmableContainer"
+    assert d["sample_rate"] == 48000
+    subs = d["config"]["submodels"]
+    assert [s["max_value"] for s in subs] == [0.5, 1]
+    assert [s["model"]["config"]["layers"][0]["channels"] for s in subs] == [3, 8]
+    assert [len(s["model"]["weights"]) for s in subs] == [1871, 12146]  # = Tone3000
+    assert not (out / "chain.a1.nam").exists()  # A2 não tem versão A1
+
+    md = d["metadata"]
+    assert md["name"] == "Meu A2" and md["gear_type"] == "amp"  # captura de teste sem gear_type
+    def has_null(v):
+        if v is None:
+            return True
+        if isinstance(v, dict):
+            return any(has_null(x) for x in v.values())
+        if isinstance(v, list):
+            return any(has_null(x) for x in v)
+        return False
+
+    assert not has_null(md)  # metadados sem null (a config do modelo é a padrão do NAM)
+
+    report = json.loads((out / "report.json").read_text())
+    assert report["arch"] == "a2" and len(report["esr_by_size"]) == 2
+
+    model, _ = load_nam_model(out / "chain.nam")  # o app carrega o próprio resultado
+    y = nam_infer(model, np.zeros(4800, np.float32) + 0.01)
+    assert np.all(np.isfinite(y))

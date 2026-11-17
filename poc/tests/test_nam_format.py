@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from chaincap.archs import ARCHITECTURES
+from chaincap.archs import CLASSIC_ARCHITECTURES as ARCHITECTURES
 from chaincap.chain import load_nam_model, nam_infer
 from chaincap.nam_format import (
     UnsupportedForLegacyExport,

@@ -24,9 +24,11 @@ from nam.data import init_dataset as _init_dataset
 from nam.train import core as _core
 from nam.train import full as _full
 from nam.train.lightning_module import LightningModule as _LightningModule
+from nam.train.lightning_module import PackedBestCheckpoint as _PackedBestCheckpoint
+from nam.train.lightning_module import PackedLightningModule as _PackedLightningModule
 from nam.util import filter_warnings as _filter_warnings
 
-from .archs import lightning_model_config
+from .archs import is_packed, lightning_model_config
 from .nam_format import UnsupportedForLegacyExport, to_legacy_a1
 
 logger = _logging.getLogger(__name__)
@@ -65,6 +67,14 @@ def esr_verdict(esr: float) -> str:
     return "ruim"
 
 
+def _drop_nulls(v):
+    if isinstance(v, dict):
+        return {k: _drop_nulls(x) for k, x in v.items() if x is not None}
+    if isinstance(v, list):
+        return [_drop_nulls(x) for x in v if x is not None]
+    return v
+
+
 @dataclass
 class TrainResult:
     nam_path: Path
@@ -72,6 +82,7 @@ class TrainResult:
     esr: float
     epochs_run: int
     seconds: float
+    esr_by_size: Optional[list] = None
 
 
 class ProgressFile(_pl.Callback):
@@ -116,7 +127,7 @@ def train_chain_model(
     input_wav: Union[str, Path],
     output_wav: Union[str, Path],
     outdir: Union[str, Path],
-    arch: str = "standard",
+    arch: str = "a2",
     epochs: int = 100,
     batch_size: int = 16,
     ny: int = _core._NY_DEFAULT,
@@ -128,7 +139,11 @@ def train_chain_model(
     trainer_kwargs: Optional[Dict[str, Any]] = None,
     progress_path: Optional[Union[str, Path]] = None,
 ) -> TrainResult:
-    """Treina e exporta `<basename>.nam` (e `<basename>.a1.nam` no formato 0.5.x)."""
+    """Treina e exporta `<basename>.nam`.
+
+    - arch "a2": SlimmableContainer (0.7.0), como o treinador oficial e o Tone3000.
+    - archs clássicas (A1): WaveNet 0.7.0 + `<basename>.a1.nam` no formato 0.5.4.
+    """
     from time import time
 
     t0 = time()
@@ -161,7 +176,9 @@ def train_chain_model(
     for name, cfg in (("data", data_config), ("model", model_config), ("learning", learning_config)):
         (outdir / f"config_{name}.json").write_text(_json.dumps(cfg, indent=2))
 
-    model = _LightningModule.init_from_config(model_config)
+    packed = is_packed(arch)
+    lightning_cls = _PackedLightningModule if packed else _LightningModule
+    model = lightning_cls.init_from_config(model_config)
     data_config["common"]["nx"] = model.net.receptive_field
     ds_train = _init_dataset(data_config, _Split.TRAIN)
     ds_val = _init_dataset(data_config, _Split.VALIDATION)
@@ -173,9 +190,9 @@ def train_chain_model(
     model.net.sample_rate = ds_train.sample_rate
     _full._handshake_datasets(model, ds_train, ds_val)
 
+    callbacks = _full._create_callbacks(learning_config, packed=packed)
     trainer = _pl.Trainer(
-        callbacks=_full._create_callbacks(learning_config)
-        + ([ProgressFile(progress_path)] if progress_path else []),
+        callbacks=callbacks + ([ProgressFile(progress_path)] if progress_path else []),
         default_root_dir=str(outdir),
         enable_progress_bar=False,
         # Sem TensorBoard: não usamos os logs e o app desktop não empacota o pacote.
@@ -191,16 +208,27 @@ def train_chain_model(
 
     best = trainer.checkpoint_callback.best_model_path
     if best:
-        model = _LightningModule.load_from_checkpoint(
-            best, **_LightningModule.parse_config(model_config)
+        model = lightning_cls.load_from_checkpoint(
+            best, **lightning_cls.parse_config(model_config)
         )
     model.cpu()
     model.eval()
     model.net.sample_rate = ds_train.sample_rate
+    if packed:
+        # Como o treinador oficial: cada tamanho fica com o seu melhor checkpoint.
+        pb = next((c for c in callbacks if isinstance(c, _PackedBestCheckpoint)), None)
+        if pb is not None:
+            _core._apply_packed_best_checkpoints(model, model_config, pb.checkpoint_paths)
 
     with torch.no_grad():
         pred = model(ds_val.x)
-    esr = _core._esr(pred.flatten(), ds_val.y)
+    esr_by_size = None
+    if packed:
+        out = pred.reshape(-1, pred.shape[-1])  # (tamanhos, amostras)
+        esr_by_size = [_core._esr(o, ds_val.y) for o in out]
+        esr = esr_by_size[-1]  # o tamanho de maior qualidade
+    else:
+        esr = _core._esr(pred.flatten(), ds_val.y)
 
     md = dict(metadata or {})
     md["chain_capture"] = {
@@ -209,11 +237,14 @@ def train_chain_model(
         "esr": esr,
         "epochs": trainer.current_epoch,
     }
-    model.net.export(outdir, basename=basename, other_metadata=md)
+    if esr_by_size is not None:
+        md["chain_capture"]["esr_by_size"] = esr_by_size
+    # Leitores de pedaleira são mais simples que o plugin: sem valores null.
+    model.net.export(outdir, basename=basename, other_metadata=_drop_nulls(md))
     nam_path = outdir / f"{basename}.nam"
 
     legacy_path: Optional[Path] = None
-    if legacy_export:
+    if legacy_export and not packed:
         try:
             legacy = to_legacy_a1(_json.loads(nam_path.read_text()))
             legacy_path = outdir / f"{basename}.a1.nam"
@@ -230,4 +261,5 @@ def train_chain_model(
         esr=esr,
         epochs_run=trainer.current_epoch,
         seconds=time() - t0,
+        esr_by_size=esr_by_size,
     )

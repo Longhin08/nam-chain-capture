@@ -55,6 +55,23 @@ def _render(args) -> tuple:
     return spec, res, target, time.time() - t0
 
 
+def _gear_type(stages_meta) -> str:
+    """Tipo de equipamento do resultado (campo gear_type do .nam)."""
+    flat = []
+    for s in stages_meta:
+        if s.get("type") == "split":
+            for b in s["branches"]:
+                flat.extend(b["stages"])
+        else:
+            flat.append(s)
+    gears = {s.get("gear_type") for s in flat if s["type"] == "nam"}
+    if any(s["type"] == "ir" for s in flat) or gears & {"amp_cab", "amp_pedal_cab"}:
+        return "amp_cab"
+    if gears & {"amp", "preamp", "pedal_amp", "studio"} or not gears or None in gears:
+        return "amp"
+    return "pedal"
+
+
 def cmd_render(args) -> int:
     _render(args)
     return 0
@@ -64,10 +81,12 @@ def cmd_run(args) -> int:
     from .train import ESR_FAIL, esr_verdict, train_chain_model
 
     spec, res, target, t_render = _render(args)
-    arch = args.arch or spec.get("arch", "standard")
+    arch = args.arch or spec.get("arch", "a2")
     name = spec.get("name") or Path(args.chain).stem
     metadata = {
         "name": name,
+        "modeled_by": "NAM Chain Capture",
+        "gear_type": _gear_type(res.stages_metadata),
         "chain_capture": {
             "stages": res.stages_metadata,
             "clip_gain": res.clip_gain,
@@ -95,6 +114,7 @@ def cmd_run(args) -> int:
         "name": name,
         "arch": arch,
         "esr": tr.esr,
+        "esr_by_size": tr.esr_by_size,
         "esr_verdict": esr_verdict(tr.esr),
         "epochs_run": tr.epochs_run,
         "render_seconds": round(t_render, 2),

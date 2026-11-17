@@ -239,6 +239,7 @@ def _run_stage(y: np.ndarray, st: Stage, ctx: _Ctx, pre_gain_db: float, label: s
             version=d.get("version"),
             name=md.get("name"),
             modeled_by=md.get("modeled_by"),
+            gear_type=md.get("gear_type"),
         )
         if not ctx.calibrated:
             ctx.calibrated = True
@@ -296,9 +297,10 @@ def render_chain(x: np.ndarray, nodes: Sequence[Node]) -> ChainResult:
             raise ValueError("Divisão com todas as cadeias no mudo")
         mixed = np.zeros_like(y)
         split_meta = {"type": "split", "branches": []}
+        branch_meta = {}
         for k, b in live:
             # Calibração: se ainda não houve NAM, vem do 1º NAM da 1ª cadeia ligada.
-            out, _, _ = _run_stages(y, b.stages, ctx, pre_gain_db, f"cadeia {'ABCD'[k]}, ")
+            out, branch_meta[k], _ = _run_stages(y, b.stages, ctx, pre_gain_db, f"cadeia {'ABCD'[k]}, ")
             g = db_to_gain(b.level_db) * (-1.0 if b.invert else 1.0)
             mixed += g * out
         for k, b in enumerate(node.branches):
@@ -306,7 +308,7 @@ def render_chain(x: np.ndarray, nodes: Sequence[Node]) -> ChainResult:
                 "level_db": b.level_db,
                 "invert": b.invert,
                 "enabled": b.enabled,
-                "stages": [
+                "stages": branch_meta.get(k) or [
                     {"type": st.type, "file": Path(st.file).name,
                      "input_gain_db": st.input_gain_db, "output_gain_db": st.output_gain_db}
                     for st in b.stages

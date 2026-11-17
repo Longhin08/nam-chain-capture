@@ -71,7 +71,7 @@ class DesktopApi:
         self._ws = workspace
         self._window = None
 
-    def save_job_file(self, job_id: str, name: str):
+    def save_job_file(self, job_id: str, name: str, suggested: str = ""):
         import webview
 
         if not re.fullmatch(r"[0-9a-f]{12}", job_id or "") or name != Path(name).name:
@@ -79,7 +79,9 @@ class DesktopApi:
         src = self._ws / "jobs" / job_id / "out" / name
         if not src.is_file():
             return {"error": "Arquivo não encontrado"}
-        res = self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=name)
+        res = self._window.create_file_dialog(
+            webview.FileDialog.SAVE, save_filename=Path(suggested or name).name
+        )
         if not res:
             return {"canceled": True}
         dest = res if isinstance(res, str) else res[0]
@@ -290,13 +292,13 @@ def self_test() -> int:
         ir[:3] = [1.0, 0.5, 0.25]
         write_wav_24(td / "cab.wav", ir)
         (td / "chain.json").write_text(json.dumps({
-            "name": "self-test", "arch": "nano",
+            "name": "self-test", "arch": "a2",
             "stages": [{"type": "nam", "file": "drive.nam"}, {"type": "ir", "file": "cab.wav"}],
         }))
         rc = cli(["run", str(td / "chain.json"), "--input", str(td / "input.wav"),
                   "--out", str(td / "out"), "--smoke", "--epochs", "1", "--skip-input-check"])
-        a1 = json.loads((td / "out" / "chain.a1.nam").read_text())
-        ok = rc == 0 and a1["version"] == "0.5.4"
+        nam = json.loads((td / "out" / "chain.nam").read_text())
+        ok = rc == 0 and nam["architecture"] == "SlimmableContainer" and len(nam["config"]["submodels"]) == 2
     print("SELF-TEST OK" if ok else "SELF-TEST FALHOU", flush=True)
     return 0 if ok else 1
 

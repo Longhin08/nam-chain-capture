@@ -3,11 +3,13 @@
 const $ = (s, el = document) => el.querySelector(s);
 const STORE_KEY = "chaincap.chain.v1";
 const ARCH_INFO = {
-  standard: "plugin e pedais fortes",
-  lite: "maioria das pedaleiras",
-  feather: "pedais baratos",
-  nano: "quando nada mais roda",
+  a2: "recomendado: formato atual (Tone3000, M-VAVE e pedaleiras com NAM A2)",
+  standard: "A1 antigo: plugin e pedais fortes",
+  lite: "A1 antigo: pedaleiras intermediárias",
+  feather: "A1 antigo: pedais baratos",
+  nano: "A1 antigo: quando nada mais roda",
 };
+const ARCH_LABEL = { a2: "A2" };
 const KIND_LABEL = { nam: "Captura NAM", ir: "IR de caixa" };
 
 // Como desenhar cada estágio, a partir do gear_type gravado no .nam.
@@ -1003,11 +1005,11 @@ function setupTrain() {
   const fs = $("#arch");
   for (const a of state.status.archs) {
     const l = document.createElement("label");
-    l.innerHTML = `<input type="radio" name="arch" value="${a}">${a}<small>${ARCH_INFO[a] || ""}</small>`;
+    l.innerHTML = `<input type="radio" name="arch" value="${a}">${ARCH_LABEL[a] || a}<small>${ARCH_INFO[a] || ""}</small>`;
     fs.append(l);
   }
   const saved = (() => { try { return JSON.parse(localStorage.getItem("chaincap.train") || "{}"); } catch { return {}; } })();
-  const arch = saved.arch && state.status.archs.includes(saved.arch) ? saved.arch : "standard";
+  const arch = saved.arch && state.status.archs.includes(saved.arch) ? saved.arch : "a2";
   fs.querySelector(`input[value="${arch}"]`).checked = true;
   if (saved.name) $("#job-name").value = saved.name;
   if (saved.epochs) $("#epochs").value = saved.epochs;
@@ -1146,16 +1148,18 @@ async function renderJobs() {
       actions.append(b);
       return b;
     };
-    const link = (label, file) => {
+    // Arquivo baixado com o nome do treino (ex.: "John Fruciante Clean.nam").
+    const safe = (j.name || "captura").replace(/[\\/:*?"<>|]+/g, "_").trim() || "captura";
+    const link = (label, file, saveAs = file) => {
       if (!j.files.includes(file)) return;
       const a = document.createElement("a");
       a.className = "small"; a.textContent = label;
-      a.href = withToken(`/api/jobs/${j.id}/files/${file}`); a.download = file;
+      a.href = withToken(`/api/jobs/${j.id}/files/${file}`); a.download = saveAs;
       a.addEventListener("click", async (e) => {
         const d = desktopApi();
         if (!d) return; // navegador: download normal
         e.preventDefault();
-        const r = await d.save_job_file(j.id, file);
+        const r = await d.save_job_file(j.id, file, saveAs);
         if (r && r.saved) toast(`Salvo em ${r.saved}`);
         else if (r && r.error) toast(r.error, true);
       });
@@ -1164,8 +1168,12 @@ async function renderJobs() {
     if (j.status === "done" || j.status === "rejected") {
       btn("Ouvir resultado", (e) => preview([{ type: "nam", job: j.id, input_gain_db: 0, output_gain_db: 0, enabled: true }], `o modelo “${j.name}”`, e.currentTarget));
       btn("Ouvir cadeia original", (e) => preview(j.stages.map((s) => ({ ...s })), `a cadeia original de “${j.name}”`, e.currentTarget));
-      link("Baixar para o pedal (.a1.nam)", "chain.a1.nam");
-      link("Baixar .nam atual", "chain.nam");
+      if (j.files.includes("chain.a1.nam")) {
+        link("Baixar para o pedal (A1, formato antigo)", "chain.a1.nam", `${safe} (A1).nam`);
+        link("Baixar .nam (formato novo)", "chain.nam", `${safe}.nam`);
+      } else {
+        link("Baixar para o pedal (.nam A2)", "chain.nam", `${safe}.nam`);
+      }
       link("Relatório", "report.json");
       btn("Usar na cadeia", () => { addStage("nam", null, { job: j.id, label: j.name, arch: j.arch }); toast(`“${j.name}” adicionado à cadeia`); });
     }

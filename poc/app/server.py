@@ -606,7 +606,7 @@ if os.environ.get("CHAINCAP_AUTO_V3") and not V3.is_file():
 
 class JobIn(BaseModel):
     name: str = Field("Minha cadeia", min_length=1, max_length=80)
-    arch: Literal[ARCHITECTURES] = "standard"  # type: ignore[valid-type]
+    arch: Literal[ARCHITECTURES] = "a2"  # type: ignore[valid-type]
     epochs: int = Field(100, ge=1, le=1000)
     gpu_usd_per_hour: Optional[float] = Field(None, ge=0)
     stages: List[NodeIn]

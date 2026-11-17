@@ -23,7 +23,16 @@ _SPECS = {
     "nano": (4, 2, _DIL_LITE_1, _DIL_LITE_2),
 }
 
-ARCHITECTURES = tuple(_SPECS)
+# "a2": arquitetura atual do NAM (treinador 0.13): WaveNet "packed" com dois
+# tamanhos (3 e 8 canais) no mesmo arquivo, exportado como SlimmableContainer.
+# É o formato das capturas atuais do Tone3000 e das pedaleiras com "NAM A2"
+# (ex.: M-VAVE Pocket Amp). As demais são as clássicas A1.
+CLASSIC_ARCHITECTURES = tuple(_SPECS)
+ARCHITECTURES = ("a2",) + CLASSIC_ARCHITECTURES
+
+
+def is_packed(arch: str) -> bool:
+    return arch == "a2"
 
 
 def wavenet_config(arch: str) -> Dict:
@@ -61,6 +70,10 @@ def wavenet_config(arch: str) -> Dict:
 
 def lightning_model_config(arch: str) -> Dict:
     """Config completa do LightningModule (rede + loss + otimizador)."""
+    if is_packed(arch):
+        from nam.train import core as _core
+
+        return _core._get_packed_model_config()  # a mesma do treinador oficial
     return {
         "net": {"name": "WaveNet", "config": wavenet_config(arch)},
         "loss": {"val_loss": "esr", "mrstft_weight": 2e-4},
