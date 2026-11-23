@@ -1047,16 +1047,19 @@ function setupTrain() {
   if (saved.name) $("#job-name").value = saved.name;
   if (saved.epochs) $("#epochs").value = saved.epochs;
   if (saved.gpu) $("#gpu-price").value = saved.gpu;
+  if (saved.warm === false) $("#warm-start").checked = false;
+  if (saved.stop === false) $("#auto-stop").checked = false;
   const persist = () => {
     try {
       localStorage.setItem("chaincap.train", JSON.stringify({
         arch: fs.querySelector("input:checked").value, name: $("#job-name").value,
         epochs: $("#epochs").value, gpu: $("#gpu-price").value,
+        warm: $("#warm-start").checked, stop: $("#auto-stop").checked,
       }));
     } catch {}
   };
   fs.addEventListener("change", persist);
-  for (const id of ["#job-name", "#epochs", "#gpu-price"]) $(id).addEventListener("change", persist);
+  for (const id of ["#job-name", "#epochs", "#gpu-price", "#warm-start", "#auto-stop"]) $(id).addEventListener("change", persist);
 
   $("#train").onclick = async (e) => {
     const btn = e.currentTarget;
@@ -1067,6 +1070,8 @@ function setupTrain() {
         arch: fs.querySelector("input:checked").value,
         epochs: Number($("#epochs").value) || 100,
         gpu_usd_per_hour: $("#gpu-price").value ? Number($("#gpu-price").value) : null,
+        warm_start: $("#warm-start").checked,
+        auto_stop: $("#auto-stop").checked,
         stages: stagesPayload(),
       };
       await postJSON("/api/jobs", body);
@@ -1091,7 +1096,7 @@ function renderTrainNote() {
   if (!state.status.v3.valid) { msg = "Baixe o sinal de treino no topo da página para poder treinar."; cls = "note warn"; }
   else if (!enabled.length) msg = "Adicione pelo menos um estágio ligado à cadeia.";
   else if (missing.length) { msg = "Um dos estágios aponta para um arquivo que foi apagado."; cls = "note err"; }
-  else if (!state.status.gpu) { msg = "Sem GPU, cada época leva alguns minutos. Para 100 épocas, use o Colab."; cls = "note warn"; }
+  else if (!state.status.gpu) { msg = "Sem GPU, cada época leva uns 2 minutos. Os dois atalhos acima costumam cortar a maior parte delas."; cls = "note warn"; }
   else msg = "O treino roda em segundo plano; você pode continuar mexendo na cadeia.";
   note.textContent = msg;
   note.className = cls;
@@ -1131,7 +1136,9 @@ async function renderJobs() {
     const head = document.createElement("div");
     head.innerHTML = `<div class="job-title"></div><div class="job-sub"></div>`;
     head.querySelector(".job-title").textContent = j.name;
-    const subs = [j.arch, `${j.stages.length} estágios`, `${j.epochs} épocas`];
+    const ran = r && r.epochs_run != null ? r.epochs_run : null;
+    const subs = [j.arch, `${j.stages.length} estágios`,
+      ran != null && ran < j.epochs ? `${ran} de ${j.epochs} épocas` : `${j.epochs} épocas`];
     if (r) {
       subs.push(`${Math.round(r.train_seconds / 60)} min`);
       if (r.gpu_cost_usd != null) subs.push(`US$ ${r.gpu_cost_usd.toFixed(3)}`);
@@ -1149,6 +1156,17 @@ async function renderJobs() {
       st.textContent += `, ESR ${p.best_val_loss.toExponential(2)}`;
     }
     li.append(head, st);
+    // Como o tempo foi economizado (ou não): de onde começou e por que parou.
+    const how = [];
+    const ws = (r && r.warm_start) || (p && p.warm_start);
+    if (ws) how.push(`Começou de ${ws.replace(/\.nam$/i, "")}.`);
+    if (r && r.stop_reason) how.push(`Parou antes: ${r.stop_reason}.`);
+    if (how.length) {
+      const h = document.createElement("div");
+      h.className = "job-how";
+      h.textContent = how.join(" ");
+      li.append(h);
+    }
 
     if (j.status === "running" || j.status === "queued" || j.status === "canceling") {
       const bar = document.createElement("div");

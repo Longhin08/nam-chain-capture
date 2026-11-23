@@ -24,14 +24,30 @@ Caminhos relativos em `stages[].file` são resolvidos a partir do chain.json.
 from . import _compat  # noqa: F401
 
 import argparse
+import hashlib
 import json
 import logging
+import os
+import shutil
 import sys
 import time
 from pathlib import Path
 
 from .archs import ARCHITECTURES
-from .chain import parse_node, read_wav_mono, render_chain, write_wav_24, SAMPLE_RATE
+from .chain import (
+    SAMPLE_RATE,
+    ChainResult,
+    parse_node,
+    read_wav_mono,
+    render_chain,
+    warm_start_candidates,
+    write_wav_24,
+)
+
+# Versão do "motor" de render: mude quando o som de uma mesma cadeia mudar,
+# para não reaproveitar renders antigos do cache.
+RENDER_VERSION = 1
+CACHE_KEEP = 4
 
 
 def _load_chain(path: Path):
@@ -40,19 +56,72 @@ def _load_chain(path: Path):
     return spec, stages
 
 
+def _file_digest(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fp:
+        for chunk in iter(lambda: fp.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _render_key(spec: dict, stages, input_path: Path) -> str:
+    """Identifica o render: cadeia (ganhos, ordem...), conteúdo dos arquivos e sinal."""
+    files = set()
+    for n in stages:
+        for st in (s for b in n.branches for s in b.stages) if hasattr(n, "branches") else [n]:
+            files.add(Path(st.file))
+    h = hashlib.sha256()
+    h.update(json.dumps({"v": RENDER_VERSION, "stages": spec["stages"]}, sort_keys=True).encode())
+    for f in sorted(files, key=str):
+        h.update(f.name.encode() + _file_digest(f).encode())
+    h.update(_file_digest(input_path).encode())
+    return h.hexdigest()[:24]
+
+
+def _cache_prune(cache: Path) -> None:
+    entries = sorted(cache.glob("*.wav"), key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in entries[CACHE_KEEP:]:
+        old.unlink(missing_ok=True)
+        old.with_suffix(".json").unlink(missing_ok=True)
+
+
 def _render(args) -> tuple:
     spec, stages = _load_chain(Path(args.chain))
-    x, sr = read_wav_mono(args.input)
-    if sr != SAMPLE_RATE:
-        sys.exit(f"Sinal de treino precisa ser {SAMPLE_RATE} Hz (recebido {sr})")
-    t0 = time.time()
-    res = render_chain(x, stages)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     target = out / "target.wav"
+    t0 = time.time()
+
+    cache = Path(args.cache_dir) if getattr(args, "cache_dir", None) else None
+    key = _render_key(spec, stages, Path(args.input)) if cache else None
+    if cache and (cache / f"{key}.wav").is_file() and (cache / f"{key}.json").is_file():
+        meta = json.loads((cache / f"{key}.json").read_text())
+        shutil.copyfile(cache / f"{key}.wav", target)
+        os.utime(cache / f"{key}.wav")  # mais recente no cache
+        logging.info("Cadeia já renderizada antes: reaproveitando (%s)", key)
+        res = ChainResult(y=None, **meta)
+        return spec, res, target, time.time() - t0, stages
+
+    x, sr = read_wav_mono(args.input)
+    if sr != SAMPLE_RATE:
+        sys.exit(f"Sinal de treino precisa ser {SAMPLE_RATE} Hz (recebido {sr})")
+    res = render_chain(x, stages)
     write_wav_24(target, res.y)
     logging.info("Cadeia renderizada em %.1fs -> %s", time.time() - t0, target)
-    return spec, res, target, time.time() - t0
+    if cache:
+        try:
+            cache.mkdir(parents=True, exist_ok=True)
+            tmp = cache / f"{key}.tmp"
+            shutil.copyfile(target, tmp)
+            tmp.replace(cache / f"{key}.wav")
+            (cache / f"{key}.json").write_text(json.dumps({
+                "warnings": res.warnings, "clip_gain": res.clip_gain,
+                "input_level_dbu": res.input_level_dbu, "stages_metadata": res.stages_metadata,
+            }))
+            _cache_prune(cache)
+        except OSError as e:  # cache é só atalho: falhar não pode quebrar o job
+            logging.warning("Sem cache de render: %s", e)
+    return spec, res, target, time.time() - t0, stages
 
 
 def _gear_type(stages_meta) -> str:
@@ -80,7 +149,7 @@ def cmd_render(args) -> int:
 def cmd_run(args) -> int:
     from .train import ESR_FAIL, esr_verdict, train_chain_model
 
-    spec, res, target, t_render = _render(args)
+    spec, res, target, t_render, stages = _render(args)
     arch = args.arch or spec.get("arch", "a2")
     name = spec.get("name") or Path(args.chain).stem
     metadata = {
@@ -109,6 +178,8 @@ def cmd_run(args) -> int:
         trainer_kwargs={"limit_train_batches": 2, "limit_val_batches": 1} if args.smoke else None,
         skip_input_check=args.skip_input_check,
         progress_path=Path(args.out) / "progress.json",
+        init_from=None if args.no_warm_start else warm_start_candidates(stages),
+        auto_stop=not args.no_auto_stop,
     )
     report = {
         "name": name,
@@ -117,6 +188,9 @@ def cmd_run(args) -> int:
         "esr_by_size": tr.esr_by_size,
         "esr_verdict": esr_verdict(tr.esr),
         "epochs_run": tr.epochs_run,
+        "epochs_max": args.epochs,
+        "warm_start": tr.warm_start,
+        "stop_reason": tr.stop_reason,
         "render_seconds": round(t_render, 2),
         "train_seconds": round(tr.seconds, 2),
         "gpu_cost_usd": (
@@ -150,6 +224,8 @@ def main(argv=None) -> int:
         s.add_argument("chain", help="chain.json")
         s.add_argument("--input", required=True, help="v3_0_0.wav oficial do NAM")
         s.add_argument("--out", required=True, help="pasta de saída")
+        s.add_argument("--cache-dir", default=None,
+                       help="pasta para reaproveitar renders da mesma cadeia")
         s.set_defaults(fn=fn)
         if name == "run":
             s.add_argument("--arch", choices=ARCHITECTURES)
@@ -158,6 +234,10 @@ def main(argv=None) -> int:
             s.add_argument("--basename", default="chain")
             s.add_argument("--gpu-usd-per-hour", type=float, default=None,
                            help="preço da GPU, para estimar custo do job")
+            s.add_argument("--no-warm-start", action="store_true",
+                           help="treina do zero, sem partir de uma captura da cadeia")
+            s.add_argument("--no-auto-stop", action="store_true",
+                           help="roda todas as épocas, mesmo depois de estabilizar")
             s.add_argument("--smoke", action="store_true",
                            help="treino de 2 passos (use com --epochs 1) só para testar o pipeline")
             s.add_argument("--skip-input-check", action="store_true",

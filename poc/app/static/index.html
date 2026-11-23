@@ -82,13 +82,17 @@
         </fieldset>
         <div class="row">
           <label class="field narrow">
-            <span>Épocas</span>
+            <span>Épocas (máximo)</span>
             <input id="epochs" type="number" min="1" max="1000" value="100">
           </label>
           <label class="field narrow">
             <span>GPU (US$/h)</span>
             <input id="gpu-price" type="number" min="0" step="0.01" placeholder="opcional">
           </label>
+        </div>
+        <div class="speedups">
+          <label class="check"><input type="checkbox" id="warm-start" checked> Começar do amp da cadeia</label>
+          <label class="check"><input type="checkbox" id="auto-stop" checked> Parar quando estabilizar</label>
         </div>
         <button type="button" id="train" class="primary wide">Treinar captura</button>
         <p class="note" id="train-note"></p>

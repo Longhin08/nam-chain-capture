@@ -340,6 +340,43 @@ def render_chain(x: np.ndarray, nodes: Sequence[Node]) -> ChainResult:
     )
 
 
+# gear_type de capturas que têm o "som principal" da cadeia (amp, com ou sem caixa)
+AMP_GEAR = {"amp", "amp_cab", "preamp", "pedal_amp", "amp_pedal_cab", "studio"}
+
+
+def warm_start_candidates(nodes: Sequence[Node]) -> List[Path]:
+    """Capturas da cadeia de onde vale começar o treino, da mais para a menos provável.
+
+    O som da cadeia costuma ser dominado pelo amp: primeiro os amps (do último
+    para o primeiro), depois os outros .nam. Numa divisão, só entra a cadeia
+    mais alta no mixer (a que mais pesa na soma).
+    """
+    flat: List[Stage] = []
+    for n in nodes:
+        if isinstance(n, Split):
+            live = [b for b in n.branches if b.enabled and b.stages]
+            if live:
+                flat.extend(max(live, key=lambda b: b.level_db).stages)
+        else:
+            flat.append(n)
+    nams = [s for s in flat if s.type == "nam"]
+
+    def gear(st: Stage) -> Optional[str]:
+        try:
+            return (read_nam_file(st.file).get("metadata") or {}).get("gear_type")
+        except Exception:
+            return None
+
+    amps = [s for s in nams if gear(s) in AMP_GEAR]
+    rest = [s for s in nams if s not in amps]
+    out: List[Path] = []
+    for s in list(reversed(amps)) + list(reversed(rest)):
+        p = Path(s.file)
+        if p not in out:
+            out.append(p)
+    return out
+
+
 def write_wav_24(path: Union[str, Path], y: np.ndarray, sr: int = SAMPLE_RATE) -> None:
     """Grava WAV PCM 24-bit mono, sem fade nem normalização."""
     from nam.data import np_to_wav

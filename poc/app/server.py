@@ -527,7 +527,12 @@ def _run_job(jid: str) -> None:
         "--worker", "run", str(d / "chain.json"),
         "--input", str(V3), "--out", str(d / "out"),
         "--epochs", str(job["epochs"]), "--arch", job["arch"],
+        "--cache-dir", str(WS / "cache"),
     ]
+    if not job.get("warm_start", True):
+        cmd.append("--no-warm-start")
+    if not job.get("auto_stop", True):
+        cmd.append("--no-auto-stop")
     if job.get("gpu_usd_per_hour"):
         cmd += ["--gpu-usd-per-hour", str(job["gpu_usd_per_hour"])]
     _write_job(jid, status="running", started_at=time.time())
@@ -612,6 +617,10 @@ class JobIn(BaseModel):
     arch: Literal[ARCHITECTURES] = "a2"  # type: ignore[valid-type]
     epochs: int = Field(100, ge=1, le=1000)
     gpu_usd_per_hour: Optional[float] = Field(None, ge=0)
+    # Atalhos de tempo (ligados por padrão): partir de uma captura da cadeia e
+    # parar quando o ESR estabilizar. Desligar = treino clássico, do zero até o fim.
+    warm_start: bool = True
+    auto_stop: bool = True
     stages: List[NodeIn]
 
 
@@ -655,6 +664,8 @@ def create_job(req: JobIn):
         "arch": req.arch,
         "epochs": req.epochs,
         "gpu_usd_per_hour": req.gpu_usd_per_hour,
+        "warm_start": req.warm_start,
+        "auto_stop": req.auto_stop,
         "stages": [s.model_dump() for s in req.stages if s.enabled],
         "has_split": any(isinstance(s, SplitIn) for s in req.stages),
         "status": "queued",

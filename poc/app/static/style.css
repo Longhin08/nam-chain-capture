@@ -416,6 +416,8 @@ audio { width: 100%; }
 .progress { grid-column: 1 / -1; height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; }
 .progress > span { display: block; height: 100%; background: var(--accent); transition: width .4s; }
 .job-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+.job-how { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
+.speedups { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 14px; }
 .job-warn { grid-column: 1 / -1; color: var(--warn); font-size: 13px; }
 .job-log { grid-column: 1 / -1; margin: 0; max-height: 220px; overflow: auto; font-size: 12px; line-height: 1.4; background: var(--bg); padding: 10px; border-radius: var(--radius); white-space: pre-wrap; color: var(--muted); font-family: ui-monospace, monospace; }
 .esr { font-variant-numeric: tabular-nums; }
