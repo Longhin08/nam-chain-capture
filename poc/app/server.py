@@ -48,6 +48,7 @@ from chaincap.chain import (
 from chaincap.train import V3_MD5, md5
 
 from . import gpu_runtime
+from .version import VERSION
 
 FROZEN = getattr(sys, "frozen", False)
 POC_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
@@ -624,21 +625,18 @@ class JobIn(BaseModel):
     stages: List[NodeIn]
 
 
-@app.post("/api/jobs")
-def create_job(req: JobIn):
-    if not _v3_status()["valid"]:
-        raise HTTPException(409, "Baixe o sinal de treino (v3_0_0.wav) antes de treinar")
-    stages = _active(req.stages)
-    jid = uuid.uuid4().hex[:12]
-    d = JOBS / jid
-    (d / "inputs").mkdir(parents=True)
-    # Copia os arquivos: o job continua reprodutível mesmo se a biblioteca mudar.
+def _snapshot_chain(stages, folder: Path, prefix: str) -> list:
+    """Copia os arquivos da cadeia para `folder` e devolve os estágios apontando
+    para `<prefix>/<arquivo>`. Assim o treino continua reprodutível mesmo se a
+    biblioteca mudar (e o pacote do Colab leva tudo que precisa)."""
+    folder.mkdir(parents=True, exist_ok=True)
+
     def snap(st: Stage) -> dict:
-        dest = _unique(d / "inputs", Path(st.file).name)
+        dest = _unique(folder, Path(st.file).name)
         shutil.copy2(st.file, dest)
         return {
             "type": st.type,
-            "file": f"inputs/{dest.name}",
+            "file": f"{prefix}/{dest.name}",
             "input_gain_db": st.input_gain_db,
             "output_gain_db": st.output_gain_db,
             "ir_max_ms": st.ir_max_ms,
@@ -655,6 +653,18 @@ def create_job(req: JobIn):
             ]})
         else:
             chain_stages.append(snap(node))
+    return chain_stages
+
+
+@app.post("/api/jobs")
+def create_job(req: JobIn):
+    if not _v3_status()["valid"]:
+        raise HTTPException(409, "Baixe o sinal de treino (v3_0_0.wav) antes de treinar")
+    stages = _active(req.stages)
+    jid = uuid.uuid4().hex[:12]
+    d = JOBS / jid
+    d.mkdir(parents=True)
+    chain_stages = _snapshot_chain(stages, d / "inputs", "inputs")
     (d / "chain.json").write_text(json.dumps(
         {"name": req.name, "arch": req.arch, "stages": chain_stages}, indent=2, ensure_ascii=False
     ))
@@ -676,6 +686,71 @@ def create_job(req: JobIn):
         _queue.append(jid)
         _wake.set()
     return _read_job(jid)
+
+
+# ------------------------------------------------------------ treino no Colab
+
+COLAB_URL = ("https://colab.research.google.com/github/Longhin08/nam-chain-capture/"
+             "blob/main/poc/chain_capture_colab.ipynb")
+
+
+def _downloads_dir() -> Path:
+    """Pasta Downloads da pessoa (onde o passo a passo manda procurar o pacote)."""
+    if sys.platform.startswith("linux"):
+        try:
+            out = subprocess.run(["xdg-user-dir", "DOWNLOAD"], capture_output=True, text=True, timeout=5)
+            p = Path(out.stdout.strip())
+            if out.returncode == 0 and p.is_dir() and p != Path.home():
+                return p
+        except (OSError, subprocess.SubprocessError):
+            pass
+    p = Path.home() / "Downloads"
+    p.mkdir(exist_ok=True)
+    return p
+
+
+@app.post("/api/colab/package")
+def colab_package(req: JobIn):
+    """Gera o pacote `.chaincap` para treinar no Colab: cadeia + arquivos + opções."""
+    from chaincap.colab import PACKAGE_SUFFIX, build_package, safe_filename
+
+    stages = _active(req.stages)
+    pid = uuid.uuid4().hex[:12]
+    d = WS / "colab" / pid
+    chain_stages = _snapshot_chain(stages, d / "files", "files")
+    files = {p.name: p for p in (d / "files").iterdir()}
+    name = safe_filename(req.name, "Minha cadeia")
+    pkg = build_package(
+        d / f"{name}{PACKAGE_SUFFIX}",
+        {"name": req.name, "arch": req.arch, "stages": chain_stages},
+        files,
+        {"name": req.name, "arch": req.arch, "epochs": req.epochs,
+         "warm_start": req.warm_start, "auto_stop": req.auto_stop, "app_version": VERSION},
+    )
+    shutil.rmtree(d / "files", ignore_errors=True)
+    saved = None
+    if os.environ.get("CHAINCAP_DESKTOP") or FROZEN:
+        # App de desktop: já deixa o pacote na pasta Downloads (o navegador do
+        # Windows portátil baixa sozinho para lá pelo link abaixo).
+        try:
+            dest = _unique(_downloads_dir(), pkg.name)
+            shutil.copy2(pkg, dest)
+            saved = str(dest)
+        except OSError:
+            saved = None
+    return {"id": pid, "name": pkg.name, "saved": saved, "colab_url": COLAB_URL,
+            "bytes": pkg.stat().st_size}
+
+
+@app.get("/api/colab/package/{pid}")
+def colab_package_file(pid: str):
+    if not re.fullmatch(r"[0-9a-f]{12}", pid):
+        raise HTTPException(404, "Pacote inválido")
+    d = WS / "colab" / pid
+    pkgs = list(d.glob("*.chaincap")) if d.is_dir() else []
+    if not pkgs:
+        raise HTTPException(404, "Pacote não encontrado")
+    return FileResponse(pkgs[0], filename=pkgs[0].name, media_type="application/zip")
 
 
 @app.get("/api/jobs")

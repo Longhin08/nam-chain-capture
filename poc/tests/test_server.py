@@ -307,3 +307,46 @@ def test_windows_only_helpers_are_noops_elsewhere(tmp_path):
         pytest.skip("testado no CI do Windows")
     assert D.create_shortcuts(tmp_path) == []
     assert D.open_app_window("http://127.0.0.1:1/", tmp_path) is False
+
+
+def test_colab_package_has_chain_files_and_settings(tmp_path, monkeypatch):
+    import zipfile
+
+    from chaincap import colab
+
+    monkeypatch.delenv("CHAINCAP_DESKTOP", raising=False)
+    body = {"name": "Meu rig: A/B", "arch": "a2", "epochs": 40, "warm_start": False,
+            "stages": [{"type": "nam", "file": "drive.nam", "input_gain_db": 2},
+                       {"type": "ir", "file": "cab.wav", "ir_max_ms": 20}]}
+    r = client.post("/api/colab/package", json=body)
+    assert r.status_code == 200, r.text
+    info = r.json()
+    assert info["name"] == "Meu rig_ A_B.chaincap"
+    assert info["saved"] is None  # fora do app de desktop: o navegador baixa pelo link
+    assert info["colab_url"].startswith("https://colab.research.google.com/github/")
+
+    pkg = client.get(f"/api/colab/package/{info['id']}")
+    assert pkg.status_code == 200
+    p = tmp_path / info["name"]
+    p.write_bytes(pkg.content)
+    names = set(zipfile.ZipFile(p).namelist())
+    assert {"chain.json", "settings.json", "files/drive.nam", "files/cab.wav"} <= names
+
+    job = colab.open_package(p, tmp_path / "x")
+    assert job["name"] == "Meu rig: A/B" and job["epochs"] == 40
+    assert job["warm_start"] is False and job["auto_stop"] is True
+    assert job["app_version"] == server.VERSION
+    chain = json.loads((tmp_path / "x/chain.json").read_text())
+    assert chain["stages"][0] == {"type": "nam", "file": "files/drive.nam", "input_gain_db": 2.0,
+                                  "output_gain_db": 0.0, "ir_max_ms": None, "ir_normalize": True}
+    assert client.get("/api/colab/package/zzz").status_code == 404
+
+
+def test_colab_package_goes_to_downloads_in_desktop_app(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHAINCAP_DESKTOP", "1")
+    monkeypatch.setattr(server, "_downloads_dir", lambda: tmp_path)
+    body = {"name": "Rig", "stages": [{"type": "nam", "file": "drive.nam"}]}
+    info = client.post("/api/colab/package", json=body).json()
+    assert info["saved"] == str(tmp_path / "Rig.chaincap") and (tmp_path / "Rig.chaincap").is_file()
+    info2 = client.post("/api/colab/package", json=body).json()  # não sobrescreve
+    assert info2["saved"] != info["saved"]

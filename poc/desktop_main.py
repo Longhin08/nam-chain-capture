@@ -88,6 +88,15 @@ class DesktopApi:
         shutil.copy2(src, dest)
         return {"saved": dest}
 
+    def open_url(self, url: str):
+        """Abre o Colab no navegador do sistema (a janela do app não abre abas)."""
+        import webbrowser
+
+        if not str(url).startswith("https://colab.research.google.com/"):
+            return {"error": "Endereço não permitido"}
+        webbrowser.open(url)
+        return {"opened": True}
+
 
 # ------------------------------------------------- Windows: janela e atalhos
 

@@ -94,7 +94,10 @@
           <label class="check"><input type="checkbox" id="warm-start" checked> Começar do amp da cadeia</label>
           <label class="check"><input type="checkbox" id="auto-stop" checked> Parar quando estabilizar</label>
         </div>
-        <button type="button" id="train" class="primary wide">Treinar captura</button>
+        <div class="row train-buttons">
+          <button type="button" id="train" class="primary">Treinar neste PC</button>
+          <button type="button" id="train-cloud" class="secondary">Treinar grátis na nuvem</button>
+        </div>
         <p class="note" id="train-note"></p>
       </section>
     </div>
@@ -107,6 +110,26 @@
 </main>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="colab-dialog" aria-labelledby="colab-title">
+  <form method="dialog" class="colab">
+    <h2 id="colab-title">Treinar no Google Colab</h2>
+    <p class="colab-lead">O Google empresta uma GPU de graça: lá o treino leva minutos em vez de horas. O pacote com a sua cadeia já foi salvo:</p>
+    <p class="colab-file" id="colab-file"></p>
+    <ol class="colab-steps">
+      <li>Na página do Colab que abriu no navegador, entre com sua conta Google se ele pedir.</li>
+      <li>Clique em <b>Ambiente de execução</b> e depois em <b>Executar tudo</b> (ou aperte Ctrl+F9). Se aparecer o aviso de que o notebook não é do Google, clique em <b>Executar assim mesmo</b> (Run anyway).</li>
+      <li>Quando aparecer o botão <b>Escolher arquivos</b>, escolha o pacote acima, na sua pasta Downloads.</li>
+      <li>Espere a barra chegar ao fim. O arquivo <b class="colab-result"></b> baixa sozinho.</li>
+      <li>Arraste esse .nam para a lista de capturas aqui do app para ouvir, ou mande direto para a pedaleira.</li>
+    </ol>
+    <p class="note">Se o Colab avisar que não tem GPU disponível, tente mais tarde ou use "Treinar neste PC".</p>
+    <div class="row">
+      <button type="button" class="secondary" id="colab-open">Abrir o Colab de novo</button>
+      <button class="primary" value="close">Fechar</button>
+    </div>
+  </form>
+</dialog>
 
 <template id="pedal-tpl">
   <li class="pedal" draggable="true">

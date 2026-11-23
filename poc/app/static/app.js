@@ -1061,19 +1061,50 @@ function setupTrain() {
   fs.addEventListener("change", persist);
   for (const id of ["#job-name", "#epochs", "#gpu-price", "#warm-start", "#auto-stop"]) $(id).addEventListener("change", persist);
 
+  const jobBody = () => ({
+    name: $("#job-name").value.trim() || "Minha cadeia",
+    arch: fs.querySelector("input:checked").value,
+    epochs: Number($("#epochs").value) || 100,
+    gpu_usd_per_hour: $("#gpu-price").value ? Number($("#gpu-price").value) : null,
+    warm_start: $("#warm-start").checked,
+    auto_stop: $("#auto-stop").checked,
+    stages: stagesPayload(),
+  });
+
+  $("#train-cloud").onclick = async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const body = jobBody();
+      const r = await (await postJSON("/api/colab/package", body)).json();
+      if (!r.saved) {
+        // navegador comum: baixa pelo link (vai para a pasta Downloads)
+        const a = document.createElement("a");
+        a.href = withToken(`/api/colab/package/${r.id}`); a.download = r.name;
+        document.body.append(a); a.click(); a.remove();
+      }
+      $("#colab-file").textContent = r.saved || `${r.name} (na pasta Downloads)`;
+      $(".colab-result").textContent = `${r.name.replace(/\.chaincap$/, "")}.nam`;
+      const open = () => {
+        const d = desktopApi();
+        if (d && d.open_url) d.open_url(r.colab_url);
+        else window.open(r.colab_url, "_blank", "noopener");
+      };
+      $("#colab-open").onclick = open;
+      open();
+      $("#colab-dialog").showModal();
+    } catch (err) {
+      toast(err.message || String(err), true);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
   $("#train").onclick = async (e) => {
     const btn = e.currentTarget;
     btn.disabled = true;
     try {
-      const body = {
-        name: $("#job-name").value.trim() || "Minha cadeia",
-        arch: fs.querySelector("input:checked").value,
-        epochs: Number($("#epochs").value) || 100,
-        gpu_usd_per_hour: $("#gpu-price").value ? Number($("#gpu-price").value) : null,
-        warm_start: $("#warm-start").checked,
-        auto_stop: $("#auto-stop").checked,
-        stages: stagesPayload(),
-      };
+      const body = jobBody();
       await postJSON("/api/jobs", body);
       toast("Treino na fila");
       await refreshJobs();
@@ -1093,14 +1124,16 @@ function renderTrainNote() {
   const enabled = signalPaths().flat();
   const missing = enabled.filter(stageMissing);
   let msg = "", cls = "note";
-  if (!state.status.v3.valid) { msg = "Baixe o sinal de treino no topo da página para poder treinar."; cls = "note warn"; }
+  if (!state.status.v3.valid) { msg = "Para treinar neste PC, baixe o sinal de treino no topo da página. Na nuvem ele é baixado lá."; cls = "note warn"; }
   else if (!enabled.length) msg = "Adicione pelo menos um estágio ligado à cadeia.";
   else if (missing.length) { msg = "Um dos estágios aponta para um arquivo que foi apagado."; cls = "note err"; }
-  else if (!state.status.gpu) { msg = "Sem GPU, cada época leva uns 2 minutos. Os dois atalhos acima costumam cortar a maior parte delas."; cls = "note warn"; }
+  else if (!state.status.gpu) { msg = "Sem GPU, cada época leva uns 2 minutos aqui. Para terminar em minutos, use Treinar grátis na nuvem."; cls = "note warn"; }
   else msg = "O treino roda em segundo plano; você pode continuar mexendo na cadeia.";
   note.textContent = msg;
   note.className = cls;
   btn.disabled = !state.status.v3.valid || !enabled.length || missing.length > 0;
+  const cloud = $("#train-cloud");
+  if (cloud) cloud.disabled = !enabled.length || missing.length > 0;
 }
 
 // ------------------------------------------------------------ jobs
@@ -1125,7 +1158,7 @@ async function renderJobs() {
   if (!state.jobs.length) {
     const li = document.createElement("li");
     li.className = "empty";
-    li.textContent = "Nenhum treino ainda. Monte a cadeia, ouça e clique em Treinar captura.";
+    li.textContent = "Nenhum treino ainda. Monte a cadeia, ouça e clique em Treinar neste PC ou Treinar grátis na nuvem.";
     ul.append(li);
     return;
   }

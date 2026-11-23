@@ -14,10 +14,11 @@ cd poc && ../.venv/bin/python -m uvicorn app.server:app --port 8765
   - O footswitch faz bypass. No IR, dá para ligar o corte em N ms e a normalização.
   - **Dividir sinal (A/B):** cria duas cadeias paralelas, por exemplo dois amps, que tocam juntas e são somadas, como no dual amp do BIAS FX. A divisão começa no 1º amp da cadeia, e a cadeia B nasce como cópia da A. Cada cadeia tem um mixer com nível, **Ø fase** (para quando a soma fica magra) e mudo. Estágios antes da divisão são comuns às duas; os de depois são aplicados à soma. É uma divisão por cadeia, sem divisão dentro de divisão. A saída é mono, porque o `.nam` e as pedaleiras são mono.
   - **Ouvir cadeia** processa até 30 s do áudio de teste escolhido e toca no navegador, com o volume normalizado. Vêm com o app três gravações de guitarra crua em CC0 (ver README principal), e dá para enviar DIs seus. O pico real aparece abaixo do player.
-  - **Treinar captura** cria um job em fila (um por vez, em segundo plano), com progresso por época e ESR. Os arquivos da cadeia são copiados para o job, então dá para mexer na biblioteca depois.
+  - **Treinar neste PC** cria um job em fila (um por vez, em segundo plano), com progresso por época e ESR. Os arquivos da cadeia são copiados para o job, então dá para mexer na biblioteca depois. Por padrão o treino **começa do amp da cadeia** (quando a captura tem a mesma estrutura, ex.: A2 do Tone3000) e **para quando estabiliza** (ESR 0,005 ou 10 épocas sem melhorar). Numa cadeia TS-808 → amp em A2, isso chegou a ESR 0,0097 em 5 épocas; do zero, nem 0,01 em 20.
+  - **Treinar grátis na nuvem** salva um pacote `.chaincap` (cadeia + capturas + opções) na pasta Downloads, abre o notebook no Google Colab e mostra o passo a passo: Executar tudo, enviar o pacote, esperar a barra, baixar o `.nam`.
   - Com o job pronto, dá para **ouvir o resultado**, compará-lo com a cadeia original, baixar o `.a1.nam` e usar o modelo treinado como estágio de uma nova cadeia.
   - Sem o `v3_0_0.wav`, o topo da página mostra um botão para baixá-lo.
-- **Com GPU (recomendado):** [`chain_capture_colab.ipynb`](chain_capture_colab.ipynb), abrindo no Colab.
+- **Com GPU (recomendado):** [`chain_capture_colab.ipynb`](chain_capture_colab.ipynb), abrindo no Colab. Ele recebe o pacote `.chaincap` gerado pelo app (botão "Treinar grátis na nuvem"); a lógica fica em `chaincap/colab.py`.
 - **Local:**
 
 ```bash
