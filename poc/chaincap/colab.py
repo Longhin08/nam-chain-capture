@@ -78,8 +78,8 @@ def open_package(pkg: Path, workdir: Path) -> Dict[str, Any]:
             raise PackageError("Pacote grande demais.")
         z.extractall(workdir)
     try:
-        settings = json.loads((workdir / "settings.json").read_text())
-        chain = json.loads((workdir / "chain.json").read_text())
+        settings = json.loads((workdir / "settings.json").read_text(encoding="utf-8"))
+        chain = json.loads((workdir / "chain.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         raise PackageError("Pacote incompleto: gere de novo pelo app.")
     if settings.get("format") != PACKAGE_FORMAT:

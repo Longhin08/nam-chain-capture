@@ -75,7 +75,7 @@ def test_open_package_rejects_bad_files(tmp_path):
 
 
 def test_notebook_cells_are_valid_and_use_existing_functions():
-    nb = json.loads((POC / "chain_capture_colab.ipynb").read_text())
+    nb = json.loads((POC / "chain_capture_colab.ipynb").read_text(encoding="utf-8"))
     assert nb["metadata"]["accelerator"] == "GPU"  # abre pedindo GPU
     code = [c for c in nb["cells"] if c["cell_type"] == "code"]
     used = set()
