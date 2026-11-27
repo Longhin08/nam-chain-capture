@@ -27,3 +27,5 @@ data/
 poc/workspace/
 poc/build/
 poc/dist/
+# Trechos CC0 usados na prévia do app de celular
+!mobile/www/di/*.wav

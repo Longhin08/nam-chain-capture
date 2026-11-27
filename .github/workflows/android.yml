@@ -1,0 +1,36 @@
+name: App Android
+
+on:
+  workflow_dispatch:
+  push:
+    paths: ["mobile/**", ".github/workflows/android.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npx cap sync android
+      - run: ./gradlew assembleDebug --no-daemon
+        working-directory: mobile/android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nam-chain-capture-apk-teste
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

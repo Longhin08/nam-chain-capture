@@ -1,0 +1,18 @@
+{
+  "name": "nam-chain-capture-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.3",
+    "@capacitor/core": "^8.6.3",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.3",
+    "wabt": "^1.0.39"
+  }
+}
